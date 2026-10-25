@@ -15,8 +15,10 @@
 #
 # ⚠ 这份文件是"读旧-追加-写新"的：days[]（哪天定档、哪天进池、哪天被撤）只存在
 #   paibo.json 这一个文件里，四个平台都只有"当前这一屏"、没有历史接口。
-#   所以提交前一定要先 pull --rebase，撞车时宁可让这一轮白跑，
-#   也不能把攒了几天的定档记录覆盖掉 —— 那个补不回来。
+#   所以提交前一定要先 pull --rebase；撞车（底本过期）时这一轮的提交直接作废，
+#   改成按远端那一版重新采一次再推 —— 因为底本旧了算出来的 diff 本身就是错的。
+#   代价是撞车那一拍多花一轮 32 个请求；正常节拍不撞车就一次都不多花。
+#   绝不 force：宁可这一轮白跑，也不能把攒了几天的定档记录覆盖掉 —— 那个补不回来。
 #
 # 节拍不在这里，在 Worker 的 Settings → Triggers 页上（cron 是 UTC）。
 # 一天两拍：00:30 / 12:30 UTC = 北京 08:30 / 20:30，一轮 32 个请求、一天 64 个。
@@ -52,6 +54,8 @@ jobs:
     runs-on: ubuntu-latest
     # 10 分钟不是预计要跑这么久，是让「三十发里有一发挂住不回话」那一发拖不死整格：
     # 脚本每个请求自己带 25 秒超时，最坏情况全踩满也就十二分钟半。
+    # 撞车那一拍会在同一个 10 分钟里再采一遍（正常两分钟一轮，跑得完）；跑不完就被掐掉，
+    # 那一轮不推 —— 宁缺不盖，被掐掉不会写坏 json。
     timeout-minutes: 10
     env:
       PAIBO_OUT: paibo.json
@@ -75,8 +79,9 @@ jobs:
       # 但不写文件也不提交。四行平台各自的条数会一行行打出来，哪一家是 0 一眼就看到。
       # 新接的两条链通没通，看日志里那两行就够：
       #   芒果「预约数取到 10/10 条」  = 移动端那个壳和真页都拿到了；印 0/10 就是被拒或 SSR 改了
-      #   爱奇艺「B 路对上 40/98 条」  = device_id 这一发通了；印「没配 device_id」是 secret 没建，
-      #                                  印「B 路没回话」才是被风控或参数集又变了
+      #   爱奇艺「B 路对上 40/98 条」  = device_id 这一发通了
+      #   那两行现在都有线上实测了：芒果「预约数取到 10/10 条」；爱奇艺 21:18 那拍印「B 路没回话」、
+      #   21:26 那拍印「对上 39/94」⇒ 单次「没回话」当抖动看，连着好几拍都空才怀疑 id 或参数集。
       - name: 抓取
         run: node fetch_paibo.mjs
 
@@ -92,14 +97,32 @@ jobs:
           git diff --cached --quiet && { echo "字节完全没变，不提交"; exit 0; }
           git commit -m "待播池 $(TZ=Asia/Shanghai date '+%F %H:%M')"
           # 定档史全在这个 json 里，覆盖掉就永远补不回来，所以绝不 force。
-          n=0
-          while [ "$n" -lt 4 ]; do
-            n=$((n+1))
-            if git pull --rebase origin "$GITHUB_REF_NAME" && git push; then
-              echo "第 $n 次尝试推上去了"; exit 0
-            fi
-            git rebase --abort 2>/dev/null || true
-            sleep $((RANDOM % 6 + 3))
-          done
-          echo "::error::四次都没挤进 main，这一轮不推（红叉留到真出事的时候才看）"
+          #
+          # ⚠ 2026-10-25 21:26 那一拍的日志：Auto-merging paibo.json / CONFLICT (content)，
+          #   同一句念了四遍，最后红叉。原因是两拍叠上了 —— 上一拍还没推完，下一拍的 checkout
+          #   拿的已经是旧底本，而 paibo.json 是整份重写的单行 JSON，rebase 必然撞这一行。
+          #   旧那版「退避重试四次」一次都没救回来过：底本没换，重 pull 还是同一个冲突。
+          #   真修法是换底本重算 —— 这个脚本是「读旧 → diff → 写新」，底本旧了 diff 就是错的，
+          #   硬推会把上一拍攒的定档记录盖掉，所以拿远端那一版重来一遍。
+          if git pull --rebase origin "$GITHUB_REF_NAME" && git push; then
+            echo "推上去了"; exit 0
+          fi
+          git rebase --abort 2>/dev/null || true
+          # 等几秒是给上一拍留推完的时间，不然重 fetch 到的还是同一份旧底本。
+          sleep $((RANDOM % 8 + 5))
+          echo "::notice::底本过期（撞车），这一轮作废、按远端那一版重采一次"
+          git fetch origin "$GITHUB_REF_NAME"
+          # 只丢这一拍自己那个提交；工作区是临时 runner，跑完就没了。
+          git reset --hard "origin/$GITHUB_REF_NAME"
+          node fetch_paibo.mjs
+          git add "$PAIBO_OUT"
+          if git diff --cached --quiet; then
+            echo "远端那一版已经含这一轮的内容了，不重复提交"; exit 0
+          fi
+          git commit -m "待播池 $(TZ=Asia/Shanghai date '+%F %H:%M')（撞车后重采）"
+          if git pull --rebase origin "$GITHUB_REF_NAME" && git push; then
+            echo "重采一次推上去了"; exit 0
+          fi
+          git rebase --abort 2>/dev/null || true
+          echo "::error::连着两拍都在撞车，重采一次也没推上去，这一轮不推（红叉留到真出事的时候才看）"
           exit 1
