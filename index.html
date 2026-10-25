@@ -3,13 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>四站待播池 · 排播读数</title>
+<title>爱优腾芒排播系统</title>
 <style>
 :root{
-  --bg:#07090e;--pan:#0b0f16;--pan2:#0e131c;
-  --txt:#e7ecf6;--dim:#93a0b8;--dimmer:#6b7794;--faint:#4c5670;
-  --line:rgba(255,255,255,.075);--line2:rgba(255,255,255,.13);
-  --amber:#e8b04b;--qq:#4f9dff;--yk:#ffc861;--mg:#ff5f43;--iq:#3ddc97;
+  --bg:#161d29;--pan:#1c2432;--pan2:#222b3b;
+  --txt:#f4f7fc;--dim:#b7c3d6;--dimmer:#94a2ba;--faint:#7b89a3;
+  --line:rgba(255,255,255,.12);--line2:rgba(255,255,255,.2);
+  --amber:#f0b955;--qq:#5fa8ff;--yk:#ffd072;--mg:#ff6f55;--iq:#45e0a3;
+  --slot:#2a3547;
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Courier New",monospace;
 }
 *{box-sizing:border-box}
@@ -17,17 +18,16 @@ body{margin:0;background:var(--bg);color:var(--txt);
   font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
   -webkit-font-smoothing:antialiased}
 body::before{content:"";position:fixed;inset:0;pointer-events:none;
-  background:radial-gradient(900px 420px at 12% -8%,rgba(232,176,75,.07),transparent 70%),
-             radial-gradient(760px 380px at 88% 0%,rgba(79,157,255,.06),transparent 70%)}
+  background:radial-gradient(900px 420px at 12% -8%,rgba(240,185,85,.10),transparent 70%),
+             radial-gradient(760px 380px at 88% 0%,rgba(95,168,255,.09),transparent 70%)}
 .wrap{max-width:1120px;margin:0 auto;padding:0 20px 72px;position:relative}
 
 /* ── 顶栏 ── */
-.top{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap;
-  padding:26px 0 16px;border-bottom:1px solid var(--line2)}
+.top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:26px 0 18px;border-bottom:1px solid var(--line2)}
 .mark{flex:none;width:38px;height:38px;border:1px solid var(--amber);border-radius:3px;
   display:grid;place-items:center;font:600 15px/1 var(--mono);color:var(--amber);letter-spacing:.5px}
 h1{font-size:19px;margin:0;letter-spacing:2.5px;font-weight:600}
-.sub{margin:3px 0 0;color:var(--dimmer);font-size:12.5px;letter-spacing:.4px}
 .stat{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--dim);
   border:1px solid var(--line);border-radius:3px;padding:6px 11px;background:var(--pan);white-space:nowrap}
 .stat b{color:var(--amber);font-weight:500}
@@ -42,7 +42,7 @@ h1{font-size:19px;margin:0;letter-spacing:2.5px;font-weight:600}
 .rv.hot{color:var(--amber)}
 .rv small{font-family:var(--mono);font-size:13px;color:var(--dimmer)}
 .warns{border:1px solid var(--line);border-top:0;background:var(--pan);padding:9px 16px;
-  font-family:var(--mono);font-size:11.5px;color:#ffb020;letter-spacing:.3px}
+  font-family:var(--mono);font-size:11.5px;color:#ffc247;letter-spacing:.3px}
 
 /* ── 分段 ── */
 section{margin-top:38px}
@@ -50,15 +50,14 @@ section{margin-top:38px}
 .sn{font-family:var(--mono);font-size:11px;color:var(--amber);letter-spacing:1px}
 h2{font-size:15px;margin:0;letter-spacing:1.6px;font-weight:600}
 .sh .n{font-family:var(--mono);font-size:11.5px;color:var(--faint);letter-spacing:.4px}
-.why{color:var(--dimmer);font-size:12.5px;margin:10px 0 0;max-width:82ch}
 
 /* ── 日期选择 ── */
 .days{display:flex;gap:0;flex-wrap:wrap;margin:14px 0 0;border:1px solid var(--line);background:var(--pan)}
 .day{appearance:none;cursor:pointer;font:inherit;font-family:var(--mono);font-size:12px;color:var(--dimmer);
   background:transparent;border:0;border-right:1px solid var(--line);padding:8px 14px}
 .day:last-child{border-right:0}
-.day:hover{color:var(--txt);background:rgba(255,255,255,.04)}
-.day[aria-pressed="true"]{color:#0a0a0a;background:var(--amber);font-weight:600}
+.day:hover{color:var(--txt);background:rgba(255,255,255,.07)}
+.day[aria-pressed="true"]{color:#10151d;background:var(--amber);font-weight:600}
 
 /* ── 事件流 ── */
 .evs{border:1px solid var(--line);border-top:0;background:var(--pan)}
@@ -72,13 +71,13 @@ h2{font-size:15px;margin:0;letter-spacing:1.6px;font-weight:600}
 .ev.k1{border-left-color:var(--amber)}.ev.k1 .kind{color:var(--amber)}
 .ev.k2{border-left-color:#ff9d5c}.ev.k2 .kind{color:#ff9d5c}
 .ev.k3{border-left-color:var(--iq)}.ev.k3 .kind{color:var(--iq)}
-.ev.k4{border-left-color:var(--faint);opacity:.72}
+.ev.k4{border-left-color:var(--faint);opacity:.82}
 .empty{color:var(--faint);font-size:12.5px;margin:0;padding:16px;font-family:var(--mono)}
 
 /* ── 已排档期 ── */
 .dcard{display:grid;grid-template-columns:118px minmax(0,1fr) auto;gap:20px;align-items:start;
   border:1px solid var(--line);background:linear-gradient(180deg,var(--pan2),var(--pan));padding:16px;margin-top:14px}
-.dcard .po{width:118px;height:168px;border-radius:3px;object-fit:cover;background:#141a26;display:block}
+.dcard .po{width:118px;height:168px;border-radius:3px;object-fit:cover;background:var(--slot);display:block}
 .kick{font-size:10.5px;letter-spacing:1.8px;color:var(--faint)}
 .dcard h3{margin:5px 0 3px;font-size:21px;letter-spacing:1px;font-weight:600}
 .dcard h3 a{color:inherit;text-decoration:none;border-bottom:1px solid var(--line2)}
@@ -100,16 +99,16 @@ h2{font-size:15px;margin:0;letter-spacing:1.6px;font-weight:600}
 .ph .nm{font-size:14px;font-weight:600;letter-spacing:1.4px}
 .ph .ct{font-family:var(--mono);font-size:11.5px;color:var(--dimmer)}
 .ph .at{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--faint)}
-.ph .at.warn{color:#ffb020}
+.ph .at.warn{color:#ffc247}
 .thead,.pr{display:grid;grid-template-columns:40px 56px minmax(0,1fr) 128px 92px;gap:12px;align-items:center;padding:7px 16px}
 .thead{font-family:var(--mono);font-size:10px;letter-spacing:1.4px;color:var(--faint);border-bottom:1px solid var(--line)}
 .thead .r,.pr .r{text-align:right}
 .pr{border-top:1px solid var(--line);font-size:13px}
 .pool .pr:first-of-type{border-top:0}
-.pr:hover{background:rgba(255,255,255,.028)}
+.pr:hover{background:rgba(255,255,255,.05)}
 .pr .no{font-family:var(--mono);font-size:11.5px;color:var(--faint)}
-.pr .th{width:56px;height:34px;border-radius:2px;object-fit:cover;background:#141a26;display:block}
-.pr .sp{width:56px;height:34px;border-radius:2px;background:#10151f;display:block}
+.pr .th{width:56px;height:34px;border-radius:2px;object-fit:cover;background:var(--slot);display:block}
+.pr .sp{width:56px;height:34px;border-radius:2px;background:var(--slot);display:block}
 .pr .ti{font-weight:600;font-size:13.5px}
 .pr .ti a{color:inherit;text-decoration:none}
 .pr .ti a:hover{color:var(--amber)}
@@ -120,7 +119,7 @@ h2{font-size:15px;margin:0;letter-spacing:1.6px;font-weight:600}
 .pr .cn i{font-style:normal;font-size:10.5px;color:var(--dimmer);margin-left:2px}
 .more{appearance:none;cursor:pointer;font:inherit;font-family:var(--mono);font-size:11.5px;letter-spacing:1px;
   color:var(--dim);background:transparent;border:0;border-top:1px solid var(--line);width:100%;padding:11px 16px;text-align:left}
-.more:hover{color:var(--amber);background:rgba(232,176,75,.05)}
+.more:hover{color:var(--amber);background:rgba(240,185,85,.1)}
 
 /* ── 页脚 ── */
 footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line2);color:var(--dimmer);font-size:12.5px}
@@ -155,10 +154,7 @@ footer li::before{content:counter(f,decimal-leading-zero);position:absolute;left
 <div class="wrap">
   <header class="top">
     <div class="mark">播</div>
-    <div>
-      <h1>四站待播池</h1>
-      <p class="sub">腾讯视频 · 优酷 · 芒果TV · 爱奇艺 的「即将上线」清单，一天两拍，逐日记下各自的定档动静</p>
-    </div>
+    <h1>爱优腾芒排播系统</h1>
     <div class="stat"><span id="stat">正在读档案…</span></div>
   </header>
 
@@ -167,20 +163,17 @@ footer li::before{content:counter(f,decimal-leading-zero);position:absolute;left
 
   <section id="secDiff">
     <div class="sh"><span class="sn">01</span><h2>动静</h2><span class="n" id="diffN"></span></div>
-    <p class="why">新定档 = 这一部上一次还没有日期，这一次有了。改档 = 日期变了。新进池 / 撤下 = 平台的待播清单里出现或消失了。</p>
     <div class="days" id="dayChips"></div>
     <div class="evs" id="diffBox"><p class="empty">…</p></div>
   </section>
 
   <section id="secDated">
     <div class="sh"><span class="sn">02</span><h2>已排档期</h2><span class="n" id="datedN"></span></div>
-    <p class="why">腾讯、芒果、爱奇艺三家会把开播日期写进数据，但要等片方真排上档期才填 —— 绝大多数待播剧在这一栏是空的，那是它们自己还没定，不是漏采。优酷的待播清单里一个日期都没有，所以这一栏天生不会有优酷。</p>
     <div id="datedBox"></div>
   </section>
 
   <section id="secPools">
-    <div class="sh"><span class="sn">03</span><h2>四个池子</h2><span class="n" id="poolN"></span></div>
-    <p class="why">四家都给得出确切预约人数，但每家数的是各自站内的账，口径不通用，所以各站各排各的、不放一起比大小。序号是这一家自己那一屏里按预约数排下来的位次。</p>
+    <div class="sh"><span class="sn">03</span><h2>剧集库</h2><span class="n" id="poolN"></span></div>
     <div id="pools"></div>
   </section>
 
@@ -188,7 +181,7 @@ footer li::before{content:counter(f,decimal-leading-zero);position:absolute;left
     <div class="fl">口径</div>
     <ol>
       <li>「即将上线」是各平台自己摆的那一屏，不是排期表 —— 四家都没有公开的「未来哪天播什么」日历。</li>
-      <li>四个池子都按预约人数从多到少排；人数一样的里面，已经排到日期的那几部会先出现。</li>
+      <li>剧集库四家各排各的，按预约人数从多到少；人数一样的里面，已经排到日期的那几部会先出现。</li>
       <li>爱奇艺那份清单里连专辑页地址都没有，点片名跳的是站内搜索结果。</li>
       <li>芒果那个模块不给类型和主演，所以它每一行的那两格是空的，不是没采到。</li>
     </ol>
@@ -275,7 +268,7 @@ function renderReadout(V){
 function renderStatus(V){
   AT = V.at || '';
   const el = document.getElementById('stat');
-  el.innerHTML = '自动重采 · 最后一次采集 ' + '<b>' + esc(V.at || '--') + '</b>';
+  el.innerHTML = '自动更新 · 最后一次更新 ' + '<b>' + esc(V.at || '--') + '</b>';
   if(V.baseline) el.innerHTML += ' <span style="color:var(--dimmer)">· 第一份档案，动静从今天起才开始攒</span>';
 }
 
