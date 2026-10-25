@@ -3,106 +3,195 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>四站待播池 · 腾讯 / 优酷 / 芒果 / 爱奇艺</title>
+<title>四站待播池 · 排播读数</title>
 <style>
 :root{
-  --ink:#05060b;--txt:#f4f6fc;--dim:#adb6cd;--dimmer:#8e97b0;
-  --glass:rgba(255,255,255,.045);--line:rgba(255,255,255,.09);--r:16px;
-  --shadow:0 18px 50px -18px rgba(0,0,0,.85);
-  --qq:#4f9dff;--yk:#ffc861;--mg:#ff5f43;--iq:#3ddc97;--gold:#ffc861;
+  --bg:#07090e;--pan:#0b0f16;--pan2:#0e131c;
+  --txt:#e7ecf6;--dim:#93a0b8;--dimmer:#6b7794;--faint:#4c5670;
+  --line:rgba(255,255,255,.075);--line2:rgba(255,255,255,.13);
+  --amber:#e8b04b;--qq:#4f9dff;--yk:#ffc861;--mg:#ff5f43;--iq:#3ddc97;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Courier New",monospace;
 }
 *{box-sizing:border-box}
-body{margin:0;background:radial-gradient(1200px 700px at 15% -10%,#121a34 0%,var(--ink) 60%) fixed;
-  color:var(--txt);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+body{margin:0;background:var(--bg);color:var(--txt);
+  font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
   -webkit-font-smoothing:antialiased}
-.wrap{max-width:1080px;margin:0 auto;padding:26px 18px 64px}
-h1{font-size:26px;margin:0 0 6px;letter-spacing:.5px}
-.sub{color:var(--dim);margin:0 0 4px}
-.status{display:inline-flex;align-items:center;gap:8px;margin-top:12px;padding:6px 12px;border-radius:999px;
-  background:var(--glass);border:1px solid var(--line);color:var(--dimmer);font-size:13px}
-.dot{width:7px;height:7px;border-radius:50%;background:var(--iq);box-shadow:0 0 10px var(--iq)}
-section{margin-top:30px}
-h2{font-size:17px;margin:0 0 4px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
-h2 .n{font-size:13px;font-weight:400;color:var(--dimmer)}
-.why{color:var(--dimmer);font-size:13px;margin:0 0 14px;max-width:76ch}
-.card{background:var(--glass);border:1px solid var(--line);border-radius:var(--r);padding:16px;box-shadow:var(--shadow)}
-.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
-.chip{appearance:none;cursor:pointer;font:inherit;font-size:13px;color:var(--dim);background:transparent;
-  border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:6px 13px}
-.chip:hover{color:var(--txt);border-color:rgba(255,255,255,.45)}
-.chip[aria-pressed="true"]{color:#08101f;background:var(--gold);border-color:var(--gold);font-weight:600}
-.evt{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
-.evt:first-child{border-top:0;padding-top:2px}
-.tag{flex:none;font-size:12px;padding:2px 9px;border-radius:999px;border:1px solid currentColor;line-height:1.7}
-.tag.new{color:var(--gold)}.tag.mov{color:#ff9d5c}.tag.in{color:var(--iq)}.tag.gone{color:var(--dimmer)}
-.evt b{font-weight:600}
-.evt .m{color:var(--dimmer);font-size:13px}
-.empty{color:var(--dimmer);font-size:14px;margin:2px 0 0}
-.grid{display:grid;gap:12px}
-.row{display:flex;gap:12px;padding:12px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.03)}
-.row:hover{border-color:rgba(255,255,255,.2)}
-.pic{flex:none;width:118px;height:66px;border-radius:9px;object-fit:cover;background:#0d1220}
-.body{flex:1;min-width:0}
-.t{font-weight:600;font-size:15px}
-.t a{color:inherit;text-decoration:none;border-bottom:1px solid rgba(255,255,255,.2)}
-.t a:hover{border-bottom-color:var(--gold);color:var(--gold)}
-.l{color:var(--dim);font-size:13px;margin-top:2px;word-break:break-word}
-.meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px;font-size:12px;color:var(--dimmer)}
-.pill{padding:1px 8px;border-radius:999px;background:rgba(255,255,255,.07);color:var(--dim)}
-.pill.date{background:rgba(255,200,97,.16);color:var(--gold)}
-.pill.todo{background:rgba(255,255,255,.06);color:var(--dimmer)}
-.num{margin-left:auto;flex:none;text-align:right;font-size:13px;color:var(--dim);align-self:center;min-width:74px}
-.num b{display:block;font-size:17px;color:var(--txt);font-variant-numeric:tabular-nums}
-.plat{border-left:3px solid var(--c,var(--line))}
-.more{appearance:none;cursor:pointer;font:inherit;font-size:14px;font-weight:600;color:#08101f;
-  background:var(--c,var(--gold));border:0;border-radius:11px;padding:10px 18px;margin-top:12px}
-.more:hover{filter:brightness(1.12)}
-.note{color:var(--dimmer);font-size:12px;margin:8px 0 0}
-.stale{color:#ffb020}
-footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);color:var(--dimmer);font-size:13px}
-footer ul{margin:8px 0 0;padding-left:20px}
-@media (max-width:560px){
-  h1{font-size:22px}
-  .num{margin-left:0;min-width:0;flex-basis:100%;text-align:left;order:5}
-  .row{flex-wrap:wrap}
-  .pic{width:96px;height:54px}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;
+  background:radial-gradient(900px 420px at 12% -8%,rgba(232,176,75,.07),transparent 70%),
+             radial-gradient(760px 380px at 88% 0%,rgba(79,157,255,.06),transparent 70%)}
+.wrap{max-width:1120px;margin:0 auto;padding:0 20px 72px;position:relative}
+
+/* ── 顶栏 ── */
+.top{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap;
+  padding:26px 0 16px;border-bottom:1px solid var(--line2)}
+.mark{flex:none;width:38px;height:38px;border:1px solid var(--amber);border-radius:3px;
+  display:grid;place-items:center;font:600 15px/1 var(--mono);color:var(--amber);letter-spacing:.5px}
+h1{font-size:19px;margin:0;letter-spacing:2.5px;font-weight:600}
+.sub{margin:3px 0 0;color:var(--dimmer);font-size:12.5px;letter-spacing:.4px}
+.stat{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--dim);
+  border:1px solid var(--line);border-radius:3px;padding:6px 11px;background:var(--pan);white-space:nowrap}
+.stat b{color:var(--amber);font-weight:500}
+
+/* ── 读数条 ── */
+.readout{display:grid;grid-template-columns:repeat(5,1fr);border:1px solid var(--line);border-top:0;background:var(--pan)}
+.rd{padding:13px 16px 14px;border-left:1px solid var(--line)}
+.rd:first-child{border-left:0}
+.rl{font-size:10.5px;letter-spacing:1.6px;color:var(--faint);text-transform:none;white-space:nowrap}
+.rv{font-family:var(--mono);font-size:27px;line-height:1.25;font-weight:500;letter-spacing:-.5px}
+.rv i{font-style:normal;font-size:12px;color:var(--dimmer);margin-left:3px;letter-spacing:0}
+.rv.hot{color:var(--amber)}
+.rv small{font-family:var(--mono);font-size:13px;color:var(--dimmer)}
+.warns{border:1px solid var(--line);border-top:0;background:var(--pan);padding:9px 16px;
+  font-family:var(--mono);font-size:11.5px;color:#ffb020;letter-spacing:.3px}
+
+/* ── 分段 ── */
+section{margin-top:38px}
+.sh{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding-bottom:9px;border-bottom:1px solid var(--line)}
+.sn{font-family:var(--mono);font-size:11px;color:var(--amber);letter-spacing:1px}
+h2{font-size:15px;margin:0;letter-spacing:1.6px;font-weight:600}
+.sh .n{font-family:var(--mono);font-size:11.5px;color:var(--faint);letter-spacing:.4px}
+.why{color:var(--dimmer);font-size:12.5px;margin:10px 0 0;max-width:82ch}
+
+/* ── 日期选择 ── */
+.days{display:flex;gap:0;flex-wrap:wrap;margin:14px 0 0;border:1px solid var(--line);background:var(--pan)}
+.day{appearance:none;cursor:pointer;font:inherit;font-family:var(--mono);font-size:12px;color:var(--dimmer);
+  background:transparent;border:0;border-right:1px solid var(--line);padding:8px 14px}
+.day:last-child{border-right:0}
+.day:hover{color:var(--txt);background:rgba(255,255,255,.04)}
+.day[aria-pressed="true"]{color:#0a0a0a;background:var(--amber);font-weight:600}
+
+/* ── 事件流 ── */
+.evs{border:1px solid var(--line);border-top:0;background:var(--pan)}
+.ev{display:grid;grid-template-columns:74px minmax(0,1fr) 96px auto;gap:12px;align-items:baseline;
+  padding:9px 16px;border-top:1px solid var(--line);border-left:2px solid transparent;font-size:13px}
+.ev:first-child{border-top:0}
+.ev .kind{font-size:11px;letter-spacing:1px;color:var(--dimmer)}
+.ev .ti{font-weight:600;font-size:14px}
+.ev .pf{color:var(--dimmer);font-size:12px;margin-left:8px;font-weight:400}
+.ev .nt{font-family:var(--mono);font-size:12px;color:var(--dim);text-align:right;white-space:nowrap}
+.ev.k1{border-left-color:var(--amber)}.ev.k1 .kind{color:var(--amber)}
+.ev.k2{border-left-color:#ff9d5c}.ev.k2 .kind{color:#ff9d5c}
+.ev.k3{border-left-color:var(--iq)}.ev.k3 .kind{color:var(--iq)}
+.ev.k4{border-left-color:var(--faint);opacity:.72}
+.empty{color:var(--faint);font-size:12.5px;margin:0;padding:16px;font-family:var(--mono)}
+
+/* ── 已排档期 ── */
+.dcard{display:grid;grid-template-columns:118px minmax(0,1fr) auto;gap:20px;align-items:start;
+  border:1px solid var(--line);background:linear-gradient(180deg,var(--pan2),var(--pan));padding:16px;margin-top:14px}
+.dcard .po{width:118px;height:168px;border-radius:3px;object-fit:cover;background:#141a26;display:block}
+.kick{font-size:10.5px;letter-spacing:1.8px;color:var(--faint)}
+.dcard h3{margin:5px 0 3px;font-size:21px;letter-spacing:1px;font-weight:600}
+.dcard h3 a{color:inherit;text-decoration:none;border-bottom:1px solid var(--line2)}
+.dcard h3 a:hover{color:var(--amber);border-bottom-color:var(--amber)}
+.ln{margin:0;color:var(--dim);font-size:13px}
+.cs{margin:4px 0 0;color:var(--dimmer);font-size:12px}
+.tl{display:flex;align-items:flex-end;gap:14px;margin-top:14px;flex-wrap:wrap}
+.wn{font-family:var(--mono);font-size:15px;color:var(--amber);letter-spacing:.5px}
+.cd{font-family:var(--mono);font-size:11px;color:var(--dimmer);border:1px solid var(--line2);border-radius:2px;padding:2px 7px}
+.dc-r{display:flex;flex-direction:column;justify-content:flex-start;align-items:flex-end;text-align:right;min-width:96px}
+.dc-r .v{font-family:var(--mono);font-size:30px;line-height:1.1;font-weight:500;letter-spacing:-1px}
+.dc-r .v i{font-style:normal;font-size:13px;color:var(--dimmer);margin-left:2px}
+.dc-r .l{font-size:10.5px;letter-spacing:1.4px;color:var(--faint);margin-top:4px}
+
+/* ── 池子表 ── */
+.pool{border:1px solid var(--line);background:var(--pan);margin-top:14px}
+.ph{display:flex;align-items:baseline;gap:12px;padding:11px 16px;border-bottom:1px solid var(--line2);
+  border-left:2px solid var(--c,var(--line2))}
+.ph .nm{font-size:14px;font-weight:600;letter-spacing:1.4px}
+.ph .ct{font-family:var(--mono);font-size:11.5px;color:var(--dimmer)}
+.ph .at{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--faint)}
+.ph .at.warn{color:#ffb020}
+.thead,.pr{display:grid;grid-template-columns:40px 56px minmax(0,1fr) 128px 92px;gap:12px;align-items:center;padding:7px 16px}
+.thead{font-family:var(--mono);font-size:10px;letter-spacing:1.4px;color:var(--faint);border-bottom:1px solid var(--line)}
+.thead .r,.pr .r{text-align:right}
+.pr{border-top:1px solid var(--line);font-size:13px}
+.pool .pr:first-of-type{border-top:0}
+.pr:hover{background:rgba(255,255,255,.028)}
+.pr .no{font-family:var(--mono);font-size:11.5px;color:var(--faint)}
+.pr .th{width:56px;height:34px;border-radius:2px;object-fit:cover;background:#141a26;display:block}
+.pr .sp{width:56px;height:34px;border-radius:2px;background:#10151f;display:block}
+.pr .ti{font-weight:600;font-size:13.5px}
+.pr .ti a{color:inherit;text-decoration:none}
+.pr .ti a:hover{color:var(--amber)}
+.pr .sb{color:var(--dimmer);font-size:11.5px;margin-top:1px;overflow-wrap:anywhere}
+.pr .dt{font-family:var(--mono);font-size:11.5px;color:var(--amber)}
+.pr .dt.none{color:var(--faint)}
+.pr .cn{font-family:var(--mono);font-size:14.5px;text-align:right;letter-spacing:-.3px}
+.pr .cn i{font-style:normal;font-size:10.5px;color:var(--dimmer);margin-left:2px}
+.more{appearance:none;cursor:pointer;font:inherit;font-family:var(--mono);font-size:11.5px;letter-spacing:1px;
+  color:var(--dim);background:transparent;border:0;border-top:1px solid var(--line);width:100%;padding:11px 16px;text-align:left}
+.more:hover{color:var(--amber);background:rgba(232,176,75,.05)}
+
+/* ── 页脚 ── */
+footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line2);color:var(--dimmer);font-size:12.5px}
+footer .fl{font-family:var(--mono);font-size:10.5px;letter-spacing:1.6px;color:var(--faint);margin-bottom:8px}
+footer ol{margin:0;padding:0;list-style:none;counter-reset:f}
+footer li{counter-increment:f;padding:4px 0 4px 30px;position:relative;max-width:88ch}
+footer li::before{content:counter(f,decimal-leading-zero);position:absolute;left:0;top:4px;
+  font-family:var(--mono);font-size:10.5px;color:var(--faint)}
+
+@media (max-width:760px){
+  .readout{grid-template-columns:repeat(2,1fr)}
+  .rd{border-top:1px solid var(--line)}
+  .rd:nth-child(-n+2){border-top:0}
+  .rd:last-child{grid-column:1/-1}
+  .rv{font-size:22px}
+  .stat{margin-left:0;order:5}
+  .dcard{grid-template-columns:96px minmax(0,1fr);gap:14px}
+  .dcard .po{width:96px;min-height:124px}
+  .dc-r{grid-column:1/-1;flex-direction:row;align-items:flex-end;justify-content:flex-start;gap:8px;text-align:left}
+  .dc-r .v{font-size:22px}
+  .thead{display:none}
+  .thead,.pr{grid-template-columns:32px 46px minmax(0,1fr) auto}
+  .pr .th,.pr .sp{width:46px;height:28px}
+  .pr .dt{grid-column:3/5;text-align:left;font-size:11px}
+  .pr .cn{grid-column:4;grid-row:1}
+  .ev{grid-template-columns:64px minmax(0,1fr);row-gap:2px}
+  .ev .nt{grid-column:2;text-align:left}
 }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <h1>四站待播池</h1>
-    <p class="sub">腾讯视频 · 优酷 · 芒果TV · 爱奇艺 的「即将上线」，一天两拍，攒下每天的定档动静。</p>
-    <div class="status"><span class="dot"></span><span id="stat">正在读档案…</span></div>
+  <header class="top">
+    <div class="mark">播</div>
+    <div>
+      <h1>四站待播池</h1>
+      <p class="sub">腾讯视频 · 优酷 · 芒果TV · 爱奇艺 的「即将上线」清单，一天两拍，逐日记下各自的定档动静</p>
+    </div>
+    <div class="stat"><span id="stat">正在读档案…</span></div>
   </header>
 
+  <div class="readout" id="readout"></div>
+  <div id="warns"></div>
+
   <section id="secDiff">
-    <h2>每天的动静<span class="n" id="diffN"></span></h2>
+    <div class="sh"><span class="sn">01</span><h2>动静</h2><span class="n" id="diffN"></span></div>
     <p class="why">新定档 = 这一部上一次还没有日期，这一次有了。改档 = 日期变了。新进池 / 撤下 = 平台的待播清单里出现或消失了。</p>
-    <div class="chips" id="dayChips"></div>
-    <div class="card" id="diffBox"><p class="empty">…</p></div>
+    <div class="days" id="dayChips"></div>
+    <div class="evs" id="diffBox"><p class="empty">…</p></div>
   </section>
 
   <section id="secDated">
-    <h2>已经排到日期的<span class="n" id="datedN"></span></h2>
+    <div class="sh"><span class="sn">02</span><h2>已排档期</h2><span class="n" id="datedN"></span></div>
     <p class="why">腾讯、芒果、爱奇艺三家会把开播日期写进数据，但要等片方真排上档期才填 —— 绝大多数待播剧在这一栏是空的，那是它们自己还没定，不是漏采。优酷的待播清单里一个日期都没有，所以这一栏天生不会有优酷。</p>
-    <div class="grid" id="datedBox"></div>
+    <div id="datedBox"></div>
   </section>
 
-  <section id="secPools"><h2>四个池子<span class="n" id="poolN"></span></h2>
-    <p class="why">四家都给得出确切预约人数，但每家数的是各自站内的账，口径不通用，所以各站各排各的、不放一起比大小。</p>
-    <div class="grid" id="pools"></div>
+  <section id="secPools">
+    <div class="sh"><span class="sn">03</span><h2>四个池子</h2><span class="n" id="poolN"></span></div>
+    <p class="why">四家都给得出确切预约人数，但每家数的是各自站内的账，口径不通用，所以各站各排各的、不放一起比大小。序号是这一家自己那一屏里按预约数排下来的位次。</p>
+    <div id="pools"></div>
   </section>
 
   <footer>
-    几条口径，看之前先说明白：
-    <ul>
+    <div class="fl">口径</div>
+    <ol>
       <li>「即将上线」是各平台自己摆的那一屏，不是排期表 —— 四家都没有公开的「未来哪天播什么」日历。</li>
       <li>四个池子都按预约人数从多到少排；人数一样的里面，已经排到日期的那几部会先出现。</li>
       <li>爱奇艺那份清单里连专辑页地址都没有，点片名跳的是站内搜索结果。</li>
       <li>芒果那个模块不给类型和主演，所以它每一行的那两格是空的，不是没采到。</li>
-    </ul>
+    </ol>
   </footer>
 </div>
 
@@ -131,41 +220,63 @@ function dateLabel(it){
   const md = it.date.slice(5);
   return [w ? w+' '+md : md, it.time].filter(Boolean).join(' ');
 }
+/* 距开播按「天」读，是因为这一屏一天只走两拍：按小时反而让人以为中间有更新。
+   锚点取档案自己的采集日，不取看的人机器上的今天 —— 那台机器在 UTC 上会凭空多出一天。 */
+function countdown(ds, at){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(ds||''))) return '';
+  if(!/^\d{4}-\d{2}-\d{2}/.test(String(at||''))) return '';
+  const a = Date.parse(ds + 'T12:00:00+08:00'), b = Date.parse(String(at).slice(0,10) + 'T12:00:00+08:00');
+  if(isNaN(a) || isNaN(b)) return '';
+  const n = Math.round((a - b) / 86400000);
+  return n > 0 ? 'T-' + n : (n === 0 ? 'T-0 今天' : '档期已过');
+}
 
-function thumb(it){
-  if(!it.pic) return `<div class="pic" aria-hidden="true"></div>`;
-  return `<img class="pic" loading="lazy" src="${esc(it.pic)}" alt="" referrerpolicy="no-referrer" `
+function thumb(it, cls){
+  if(!it.pic) return `<span class="${cls}" aria-hidden="true"></span>`;
+  return `<img class="${cls}" loading="lazy" src="${esc(it.pic)}" alt="" referrerpolicy="no-referrer" `
        + `onerror="this.style.visibility='hidden'">`;
 }
-function row(it){
+/* 序号取的是这一屏渲染时的位次（预约数从多到少），不是档案里那个站内序号。 */
+function prow(it, no){
   const cnt = fmtCount(it.count);
-  const dl = dateLabel(it);
-  const meta = [];
-  if(it.genre) meta.push(`<span class="pill">${esc(it.genre)}</span>`);
-  if(it.cast) meta.push(`<span>主演 ${esc(it.cast)}</span>`);
-  if(it.eps) meta.push(`${it.eps} 集`);
-  /* 「预约破300万」那种档位文字，只在右边那个精确人数拿不到时才印 ——
-     两个口径同时摆在一片行里，看的人会以为是可以互相比的两个数。 */
-  if(it.hot && it.count == null) meta.push(`<span class="pill">${esc(it.hot)}</span>`);
-  /* 右边这一整格只在一时一家都没给数字时才空着；一家 98 行全写「平台未给」是噪音。 */
-  return `<div class="row">
-    ${thumb(it)}
-    <div class="body">
-      <div class="t"><a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a></div>
-      ${it.line?`<div class="l">${esc(it.line)}</div>`:''}
-      <div class="meta">
-        ${dl?`<span class="pill date">${esc(dl)} 开播</span>`:`<span class="pill todo">待定档</span>`}
-        ${meta.join('')}
-      </div>
-    </div>
-    ${cnt?`<div class="num"><b>${cnt.v}${cnt.u}</b>人预约</div>`:''}
+  const sub = [it.genre, it.cast ? '主演 ' + it.cast : '', it.eps ? it.eps + ' 集' : '',
+    /* 档位文字只在精确人数拿不到时才印 —— 两个口径摆在同一格里，看的人会以为能互相比。 */
+    (it.hot && it.count == null ? it.hot : '')].filter(Boolean).join(' · ');
+  return `<div class="pr">
+    <span class="no">${String(no).padStart(2,'0')}</span>
+    ${thumb(it,'th')}
+    <div><div class="ti"><a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a></div>
+      ${sub?`<div class="sb">${esc(sub)}</div>`:''}</div>
+    ${it.date?`<span class="dt">${esc(dateLabel(it))}</span>`:`<span class="dt none">—</span>`}
+    ${cnt?`<span class="cn">${cnt.v}<i>${cnt.u}人</i></span>`:'<span class="cn"></span>'}
   </div>`;
 }
 
+let AT = '';
+function renderReadout(V){
+  const items = V.items||[];
+  const dated = items.filter(x => x.date).length;
+  const d = (V.days||[]).slice(-1)[0] || {};
+  const n = k => (d[k]||[]).length;
+  const cell = (l,v,u,hot) => `<div class="rd"><div class="rl">${l}</div>`
+    + `<div class="rv${hot?' hot':''}">${v}${u?`<i>${u}</i>`:''}</div></div>`;
+  document.getElementById('readout').innerHTML =
+    cell('池内条目', items.length, '部')
+    + cell('已排档期', dated, '部', dated > 0)
+    + cell('最新一天 · 新定档', n('scheduled'), '部', n('scheduled') > 0)
+    + cell('最新一天 · 新进池', n('newIn'), '部')
+    + cell('最新一天 · 撤下', n('out'), '部');
+  /* 某一家这一轮没取到时，池子里留的还是上一次的 —— 只报这件事，不评价它算不算出事。 */
+  const ws = (V.warnings||[]).map(x => PLAT[x.platform] || x.platform).join('、');
+  document.getElementById('warns').innerHTML = ws
+    ? `<div class="warns">本轮没取到：${esc(ws)} · 下面那几行留的是上一次取到的那一批</div>` : '';
+}
+
 function renderStatus(V){
+  AT = V.at || '';
   const el = document.getElementById('stat');
-  el.textContent = '自动重采 · 最后一次采集 ' + (V.at || '--');
-  if(V.baseline) el.textContent += ' · 这是第一份档案，动静从今天起才开始攒';
+  el.innerHTML = '自动重采 · 最后一次采集 ' + '<b>' + esc(V.at || '--') + '</b>';
+  if(V.baseline) el.innerHTML += ' <span style="color:var(--dimmer)">· 第一份档案，动静从今天起才开始攒</span>';
 }
 
 let SEL = null;
@@ -176,7 +287,7 @@ function eventDays(V){
 function renderDiff(V){
   const box = document.getElementById('diffBox'), chips = document.getElementById('dayChips');
   const ds = eventDays(V);
-  document.getElementById('diffN').textContent = ds.length ? `（攒了 ${(V.days||[]).length} 天，其中 ${ds.length} 天有动静）` : '';
+  document.getElementById('diffN').textContent = ds.length ? `${(V.days||[]).length} 天里 ${ds.length} 天有动静` : '';
   if(!ds.length){
     chips.innerHTML = '';
     box.innerHTML = `<p class="empty">${V.baseline
@@ -187,43 +298,60 @@ function renderDiff(V){
   if(!SEL || !ds.some(d => d.day === SEL)) SEL = ds[0].day;
   chips.innerHTML = ds.slice(0,10).map(d => {
     const on = d.day === SEL;
-    return `<button class="chip" type="button" aria-pressed="${on}" data-day="${d.day}">${d.day.slice(5)}</button>`;
+    return `<button class="day" type="button" aria-pressed="${on}" data-day="${d.day}">${d.day}</button>`;
   }).join('');
-  chips.querySelectorAll('.chip').forEach(b => b.onclick = () => { SEL = b.dataset.day; renderDiff(V); });
+  chips.querySelectorAll('.day').forEach(b => b.onclick = () => { SEL = b.dataset.day; renderDiff(V); });
   const d = ds.find(x => x.day === SEL);
   const L = [];
-  for(const x of d.scheduled||[]) L.push(['new','新定档', x, `${dateLabel(x)} 开播`]);
-  for(const x of d.rescheduled||[]) L.push(['mov','改档', x, `${x.from} → ${x.to}`]);
-  for(const x of d.newIn||[]) L.push(['in','新进池', x, '']);
-  for(const x of d.out||[]) L.push(['gone','撤下', x, '']);
+  for(const x of d.scheduled||[]) L.push(['k1','新定档', x, `${dateLabel(x)} 开播 · ${countdown(x.date, V.at)}`]);
+  for(const x of d.rescheduled||[]) L.push(['k2','改档', x, `${x.from} → ${x.to}`]);
+  for(const x of d.newIn||[]) L.push(['k3','新进池', x, '']);
+  for(const x of d.out||[]) L.push(['k4','撤下', x, '']);
   box.innerHTML = L.length ? L.map(([cls,lab,x,note]) =>
-    `<div class="evt"><span class="tag ${cls}">${lab}</span><span><b>${esc(x.title)}</b> `
-    + `<span class="m">· ${esc(PLAT[x.platform]||x.platform)}</span></span>`
-    + (note?`<span class="m" style="margin-left:auto">${esc(note)}</span>`:'') + `</div>`).join('')
+    `<div class="ev ${cls}"><span class="kind">${lab}</span>`
+    + `<span><span class="ti">${esc(x.title)}</span><span class="pf">${esc(PLAT[x.platform]||x.platform)}</span></span>`
+    + `<span></span>`
+    + (note?`<span class="nt">${esc(note)}</span>`:'<span class="nt"></span>') + `</div>`).join('')
     : '<p class="empty">这一天没有动静。</p>';
 }
 
 function renderDated(V){
   const box = document.getElementById('datedBox');
   const list = (V.items||[]).filter(x => x.date).sort((a,b) => String(a.date).localeCompare(String(b.date)));
-  document.getElementById('datedN').textContent = list.length ? `（${list.length} 部）` : '';
-  box.innerHTML = list.length
-    ? list.map(x => row(x)).join('')
-    : '<p class="empty">此刻四家里一部都没有对外公布开播日期。上一栏的「新定档」有动静时，这里就会跟着出现东西。</p>';
+  document.getElementById('datedN').textContent = list.length ? `${list.length} 部` : '暂无';
+  if(!list.length){
+    box.innerHTML = '<p class="empty" style="border:1px solid var(--line);background:var(--pan)">此刻四家里一部都没有对外公布开播日期。上一栏的「新定档」有动静时，这里就会跟着出现东西。</p>';
+    return;
+  }
+  const cnt = it => { const c = fmtCount(it.count); return c ? `<div class="v">${c.v}<i>${c.u}</i></div><div class="l">人预约</div>` : '<div class="l">这家没给预约数</div>'; };
+  box.innerHTML = list.map(it => `<div class="dcard" style="border-left:2px solid var(--${it.platform})">
+    ${thumb(it,'po')}
+    <div>
+      <div class="kick">已排档期 · ${esc(PLAT[it.platform]||it.platform)}</div>
+      <h3><a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a></h3>
+      ${it.line?`<p class="ln">${esc(it.line)}</p>`:''}
+      <p class="cs">${[it.genre, it.cast?'主演 '+it.cast:'', it.eps?it.eps+' 集':''].filter(Boolean).join(' · ')||'这家没给类型和主演'}</p>
+      <div class="tl"><span class="wn">${esc(dateLabel(it))} 开播</span><span class="cd">${esc(countdown(it.date, V.at))}</span></div>
+    </div>
+    <div class="dc-r">${cnt(it)}</div>
+  </div>`).join('');
 }
 
 function renderPools(V){
   const box = document.getElementById('pools');
   const items = V.items||[];
-  document.getElementById('poolN').textContent = `（共 ${items.length} 部）`;
+  document.getElementById('poolN').textContent = `共 ${items.length} 部`;
   box.innerHTML = Object.keys(PLAT).map(k => {
     const list = items.filter(x => x.platform === k);
     const at = (V.platformAt||{})[k];
     const stale = at && V.at && at !== V.at;
-    return `<div class="card plat" style="--c:var(--${k})">
-      <h2>${PLAT[k]}<span class="n">${list.length} 部</span></h2>
-      ${stale?`<p class="note stale">这批数字来自 ${esc(at)}</p>`:''}
-      <div class="grid" data-body="${k}"></div>
+    return `<div class="pool">
+      <div class="ph" style="--c:var(--${k})">
+        <span class="nm">${PLAT[k]}</span><span class="ct">${list.length} 部</span>
+        <span class="at${stale?' warn':''}">这批数字来自 ${esc(at||'--')}</span>
+      </div>
+      <div class="thead"><span>NO</span><span></span><span>片名</span><span>档期</span><span class="r">预约</span></div>
+      <div data-body="${k}"></div>
     </div>`;
   }).join('');
   for(const k of Object.keys(PLAT)){
@@ -231,8 +359,8 @@ function renderPools(V){
     const list = items.filter(x => x.platform === k);
     if(!list.length){ host.innerHTML = '<p class="empty">这一家今天一条都没取到。</p>'; continue; }
     const CUT = 20;
-    const paint = n => host.innerHTML = list.slice(0,n).map(x => row(x)).join('')
-      + (n < list.length ? `<button class="more" type="button" data-k="${k}">展开全部 ${list.length} 部</button>` : '');
+    const paint = n => host.innerHTML = list.slice(0,n).map((x,i) => prow(x, i+1)).join('')
+      + (n < list.length ? `<button class="more" type="button" data-k="${k}">展开全部 ${list.length} 部 ▾</button>` : '');
     paint(CUT);
     const b = host.querySelector('.more');
     if(b) b.onclick = () => paint(list.length);
@@ -247,7 +375,7 @@ async function boot(){
     document.getElementById('diffBox').innerHTML = '<p class="empty">档案读不到，页面就没有东西可印。</p>';
     return;
   }
-  renderStatus(V); renderDiff(V); renderDated(V); renderPools(V);
+  renderStatus(V); renderReadout(V); renderDiff(V); renderDated(V); renderPools(V);
 }
 boot();
 </script>
