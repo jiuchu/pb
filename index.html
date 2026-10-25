@@ -5,62 +5,111 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>爱优腾芒排播系统</title>
 <style>
+/* 数字那一档单独用一款窄体，文件跟着仓库一起发、不走外链。
+   ⚠ 靠 CDN 拿字体等于赌访客能不能连上：这台机器上 unpkg 实测直接连不通。 */
+@font-face{font-family:Num;src:url(./rajdhani-600.woff2) format("woff2");font-weight:600;font-display:swap}
 :root{
-  --bg:#161d29;--pan:#1c2432;--pan2:#222b3b;
-  --txt:#f4f7fc;--dim:#b7c3d6;--dimmer:#94a2ba;--faint:#7b89a3;
-  --line:rgba(255,255,255,.12);--line2:rgba(255,255,255,.2);
-  --amber:#f0b955;--qq:#5fa8ff;--yk:#ffd072;--mg:#ff6f55;--iq:#45e0a3;
-  --slot:#2a3547;
-  --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Courier New",monospace;
+  --bg:#030814;--pan:rgba(9,25,50,.66);--pan2:rgba(16,40,76,.7);
+  --edge:#14395f;
+  --txt:#e9f5ff;--dim:#a6c8e4;--dimmer:#7fa5c8;--faint:#6a92ba;
+  --line:rgba(80,190,255,.15);--line2:rgba(80,190,255,.32);
+  --cy:#38e1ff;--cyd:rgba(56,225,255,.5);
+  --amber:#ffc247;--qq:#4f9dff;--yk:#ffc861;--mg:#ff6f55;--iq:#3ddc97;
+  --slot:#0d2141;
+  /* Num 只收了拉丁字符，所以中文照样往下落到系统字体里 —— 混排是故意的，
+     数字那一档要的是等高窄体，中文不需要。 */
+  --mono:Num,"Bahnschrift SemiBold Condensed","DIN Alternate",ui-monospace,"SF Mono",Menlo,Consolas,"Courier New",monospace;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--txt);
   font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
   -webkit-font-smoothing:antialiased}
-body::before{content:"";position:fixed;inset:0;pointer-events:none;
-  background:radial-gradient(900px 420px at 12% -8%,rgba(240,185,85,.10),transparent 70%),
-             radial-gradient(760px 380px at 88% 0%,rgba(95,168,255,.09),transparent 70%)}
-.wrap{max-width:1120px;margin:0 auto;padding:0 20px 72px;position:relative}
+/* 底纹：一层极淡的方格 + 顶部那团辉光，靠 mask 往下淡出，不抢正文 */
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(1100px 520px at 50% -14%,rgba(22,124,190,.30),transparent 62%),
+    radial-gradient(760px 420px at 6% 104%,rgba(14,86,150,.22),transparent 66%),
+    linear-gradient(rgba(80,190,255,.05) 1px,transparent 1px) 0 0/100% 46px,
+    linear-gradient(90deg,rgba(80,190,255,.05) 1px,transparent 1px) 0 0/46px 100%;
+  -webkit-mask-image:radial-gradient(1300px 1000px at 50% 0%,#000 34%,transparent 94%);
+  mask-image:radial-gradient(1300px 1000px at 50% 0%,#000 34%,transparent 94%)}
+/* 扫掠线：大屏那口气。九秒一趟，透明度压到几乎看不见 */
+body::after{content:"";position:fixed;left:0;right:0;top:0;height:2px;pointer-events:none;z-index:0;
+  background:linear-gradient(90deg,transparent,rgba(56,225,255,.55),transparent);
+  animation:sweep 9s linear infinite;opacity:.45}
+@keyframes sweep{from{transform:translateY(-2px)}to{transform:translateY(100vh)}}
+@media (prefers-reduced-motion:reduce){body::after{animation:none;display:none}}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px 72px;position:relative;z-index:1}
+/* 平时这两个块各占一行，跟改版前一模一样；只有大屏那一档才把它们并成一个区。 */
+.band{display:contents}
+.viewbtn{display:none}
+
+/* ── 面板公共壳：细边 + 对角两枚亮角 ── */
+.pan{position:relative;border:1px solid var(--edge);background:var(--pan);
+  box-shadow:inset 0 0 40px -18px rgba(56,225,255,.22)}
+.pan::before,.pan::after{content:"";position:absolute;width:10px;height:10px;pointer-events:none;
+  border:0 solid var(--cy)}
+.pan::before{left:-1px;top:-1px;border-left-width:2px;border-top-width:2px}
+.pan::after{right:-1px;bottom:-1px;border-right-width:2px;border-bottom-width:2px}
 
 /* ── 顶栏 ── */
 .top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
-  padding:26px 0 18px;border-bottom:1px solid var(--line2)}
-.mark{flex:none;width:38px;height:38px;border:1px solid var(--amber);border-radius:3px;
-  display:grid;place-items:center;font:600 15px/1 var(--mono);color:var(--amber);letter-spacing:.5px}
-h1{font-size:19px;margin:0;letter-spacing:2.5px;font-weight:600}
+  padding:26px 0 18px;border-bottom:1px solid var(--line2);position:relative}
+.top::after{content:"";position:absolute;left:0;bottom:-1px;width:min(360px,100%);height:2px;
+  background:linear-gradient(90deg,var(--cy),transparent);box-shadow:0 0 16px var(--cyd)}
+.mark{flex:none;width:40px;height:40px;border:1px solid var(--cy);
+  display:grid;place-items:center;font:600 16px/1 var(--mono);color:var(--cy);letter-spacing:.5px;
+  background:radial-gradient(circle at 50% 118%,rgba(56,225,255,.34),transparent 70%);
+  box-shadow:0 0 20px rgba(56,225,255,.22),inset 0 0 14px rgba(56,225,255,.14)}
+h1{font-size:20px;margin:0;letter-spacing:4px;font-weight:600;text-shadow:0 0 26px rgba(56,225,255,.4)}
 .stat{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--dim);
-  border:1px solid var(--line);border-radius:3px;padding:6px 11px;background:var(--pan);white-space:nowrap}
-.stat b{color:var(--amber);font-weight:500}
+  border:1px solid var(--edge);padding:7px 13px;background:rgba(6,18,38,.72);white-space:nowrap;
+  box-shadow:inset 0 0 22px -8px rgba(56,225,255,.4)}
+.stat b{color:var(--cy);font-weight:500;text-shadow:0 0 12px var(--cyd)}
+/* 链路在不在跑，用一个呼吸的点亮着 —— 比任何一句判断句都直白 */
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--cy);
+  box-shadow:0 0 10px var(--cy);margin-right:8px;vertical-align:1px;animation:breathe 2.4s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:1}50%{opacity:.28}}
 
 /* ── 读数条 ── */
-.readout{display:grid;grid-template-columns:repeat(5,1fr);border:1px solid var(--line);border-top:0;background:var(--pan)}
-.rd{padding:13px 16px 14px;border-left:1px solid var(--line)}
+.readout{display:grid;grid-template-columns:repeat(5,1fr);border-top:0}
+.rd{padding:14px 16px 15px;border-left:1px solid var(--line)}
 .rd:first-child{border-left:0}
-.rl{font-size:10.5px;letter-spacing:1.6px;color:var(--faint);text-transform:none;white-space:nowrap}
-.rv{font-family:var(--mono);font-size:27px;line-height:1.25;font-weight:500;letter-spacing:-.5px}
+.rl{font-size:10.5px;letter-spacing:1.8px;color:var(--faint);white-space:nowrap;
+  display:flex;align-items:center;gap:7px}
+.rl::before{content:"";flex:none;width:5px;height:5px;background:var(--cy);transform:rotate(45deg);
+  box-shadow:0 0 8px var(--cy)}
+.rv{font-family:var(--mono);font-size:32px;line-height:1.25;font-weight:500;letter-spacing:-1px}
 .rv i{font-style:normal;font-size:12px;color:var(--dimmer);margin-left:3px;letter-spacing:0}
-.rv.hot{color:var(--amber)}
+.rv.hot{color:var(--cy);text-shadow:0 0 22px var(--cyd)}
 .rv small{font-family:var(--mono);font-size:13px;color:var(--dimmer)}
-.warns{border:1px solid var(--line);border-top:0;background:var(--pan);padding:9px 16px;
-  font-family:var(--mono);font-size:11.5px;color:#ffc247;letter-spacing:.3px}
+.warns{border:1px solid var(--edge);border-top:0;border-left:2px solid var(--amber);background:var(--pan);
+  padding:9px 16px;font-family:var(--mono);font-size:11.5px;color:var(--amber);letter-spacing:.3px}
 
 /* ── 分段 ── */
-section{margin-top:38px}
-.sh{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding-bottom:9px;border-bottom:1px solid var(--line)}
-.sn{font-family:var(--mono);font-size:11px;color:var(--amber);letter-spacing:1px}
-h2{font-size:15px;margin:0;letter-spacing:1.6px;font-weight:600}
+section{margin-top:40px}
+.sh{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-bottom:10px;
+  border-bottom:1px solid var(--line);position:relative}
+.sh::after{content:"";position:absolute;left:0;bottom:-1px;width:190px;height:1px;
+  background:linear-gradient(90deg,var(--cy),transparent);box-shadow:0 0 12px var(--cy)}
+.sn{font-family:var(--mono);font-size:10.5px;color:var(--cy);letter-spacing:1.4px;padding:2px 8px;
+  background:linear-gradient(135deg,rgba(56,225,255,.24),rgba(56,225,255,.04));border-left:2px solid var(--cy)}
+h2{font-size:16px;margin:0;letter-spacing:3px;font-weight:600}
 .sh .n{font-family:var(--mono);font-size:11.5px;color:var(--faint);letter-spacing:.4px}
 
 /* ── 日期选择 ── */
-.days{display:flex;gap:0;flex-wrap:wrap;margin:14px 0 0;border:1px solid var(--line);background:var(--pan)}
+.days{display:flex;gap:0;flex-wrap:wrap;margin:14px 0 0}
+.days::after{display:none}
 .day{appearance:none;cursor:pointer;font:inherit;font-family:var(--mono);font-size:12px;color:var(--dimmer);
-  background:transparent;border:0;border-right:1px solid var(--line);padding:8px 14px}
+  background:transparent;border:0;border-right:1px solid var(--line);padding:8px 15px}
 .day:last-child{border-right:0}
-.day:hover{color:var(--txt);background:rgba(255,255,255,.07)}
-.day[aria-pressed="true"]{color:#10151d;background:var(--amber);font-weight:600}
+.day:hover{color:var(--cy);background:rgba(56,225,255,.08)}
+.day[aria-pressed="true"]{color:#03121e;font-weight:600;
+  background:linear-gradient(180deg,#7defff,#22b8e0);box-shadow:0 0 18px rgba(56,225,255,.45)}
 
 /* ── 事件流 ── */
-.evs{border:1px solid var(--line);border-top:0;background:var(--pan)}
+.evs{border-top:0}
+.evs::before{display:none}
 .ev{display:grid;grid-template-columns:74px minmax(0,1fr) 96px auto;gap:12px;align-items:baseline;
   padding:9px 16px;border-top:1px solid var(--line);border-left:2px solid transparent;font-size:13px}
 .ev:first-child{border-top:0}
@@ -68,78 +117,174 @@ h2{font-size:15px;margin:0;letter-spacing:1.6px;font-weight:600}
 .ev .ti{font-weight:600;font-size:14px}
 .ev .pf{color:var(--dimmer);font-size:12px;margin-left:8px;font-weight:400}
 .ev .nt{font-family:var(--mono);font-size:12px;color:var(--dim);text-align:right;white-space:nowrap}
-.ev.k1{border-left-color:var(--amber)}.ev.k1 .kind{color:var(--amber)}
-.ev.k2{border-left-color:#ff9d5c}.ev.k2 .kind{color:#ff9d5c}
+.ev.k1{border-left-color:var(--cy)}.ev.k1 .kind{color:var(--cy);text-shadow:0 0 10px var(--cyd)}
+.ev.k2{border-left-color:var(--amber)}.ev.k2 .kind{color:var(--amber)}
 .ev.k3{border-left-color:var(--iq)}.ev.k3 .kind{color:var(--iq)}
-.ev.k4{border-left-color:var(--faint);opacity:.82}
+.ev.k4{border-left-color:var(--edge);opacity:.8}
 .empty{color:var(--faint);font-size:12.5px;margin:0;padding:16px;font-family:var(--mono)}
 
 /* ── 已排档期 ── */
 .dcard{display:grid;grid-template-columns:118px minmax(0,1fr) auto;gap:20px;align-items:start;
-  border:1px solid var(--line);background:linear-gradient(180deg,var(--pan2),var(--pan));padding:16px;margin-top:14px}
-.dcard .po{width:118px;height:168px;border-radius:3px;object-fit:cover;background:var(--slot);display:block}
-.kick{font-size:10.5px;letter-spacing:1.8px;color:var(--faint)}
-.dcard h3{margin:5px 0 3px;font-size:21px;letter-spacing:1px;font-weight:600}
+  background:linear-gradient(180deg,var(--pan2),var(--pan));padding:16px;margin-top:14px}
+.dcard .po{width:118px;height:168px;border-radius:2px;object-fit:cover;background:var(--slot);display:block;
+  border:1px solid var(--edge);box-shadow:0 0 22px -6px rgba(56,225,255,.35)}
+.kick{font-size:10.5px;letter-spacing:2px;color:var(--cy)}
+.dcard h3{margin:5px 0 3px;font-size:22px;letter-spacing:1.5px;font-weight:600}
 .dcard h3 a{color:inherit;text-decoration:none;border-bottom:1px solid var(--line2)}
-.dcard h3 a:hover{color:var(--amber);border-bottom-color:var(--amber)}
+.dcard h3 a:hover{color:var(--cy);border-bottom-color:var(--cy)}
 .ln{margin:0;color:var(--dim);font-size:13px}
 .cs{margin:4px 0 0;color:var(--dimmer);font-size:12px}
 .tl{display:flex;align-items:flex-end;gap:14px;margin-top:14px;flex-wrap:wrap}
-.wn{font-family:var(--mono);font-size:15px;color:var(--amber);letter-spacing:.5px}
-.cd{font-family:var(--mono);font-size:11px;color:var(--dimmer);border:1px solid var(--line2);border-radius:2px;padding:2px 7px}
+.wn{font-family:var(--mono);font-size:16px;color:var(--cy);letter-spacing:.5px;text-shadow:0 0 14px var(--cyd)}
+.cd{font-family:var(--mono);font-size:11px;color:var(--cy);border:1px solid var(--edge);padding:2px 9px;
+  background:rgba(56,225,255,.07);letter-spacing:1px}
 .dc-r{display:flex;flex-direction:column;justify-content:flex-start;align-items:flex-end;text-align:right;min-width:96px}
-.dc-r .v{font-family:var(--mono);font-size:30px;line-height:1.1;font-weight:500;letter-spacing:-1px}
-.dc-r .v i{font-style:normal;font-size:13px;color:var(--dimmer);margin-left:2px}
-.dc-r .l{font-size:10.5px;letter-spacing:1.4px;color:var(--faint);margin-top:4px}
+.dc-r .v{font-family:var(--mono);font-size:34px;line-height:1.1;font-weight:500;letter-spacing:-1.5px;
+  text-shadow:0 0 20px rgba(56,225,255,.3)}
+.dc-r .v i{font-style:normal;font-size:13px;color:var(--dimmer);margin-left:2px;letter-spacing:0;text-shadow:none}
+.dc-r .l{font-size:10.5px;letter-spacing:1.6px;color:var(--faint);margin-top:4px}
 
-/* ── 池子表 ── */
-.pool{border:1px solid var(--line);background:var(--pan);margin-top:14px}
+/* ── 剧集库表 ── */
+.pool{margin-top:14px}
 .ph{display:flex;align-items:baseline;gap:12px;padding:11px 16px;border-bottom:1px solid var(--line2);
   border-left:2px solid var(--c,var(--line2))}
-.ph .nm{font-size:14px;font-weight:600;letter-spacing:1.4px}
-.ph .ct{font-family:var(--mono);font-size:11.5px;color:var(--dimmer)}
+.ph .nm{font-size:14px;font-weight:600;letter-spacing:2px}
+.ph .ct{font-family:var(--mono);font-size:11.5px;color:var(--cy)}
 .ph .at{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--faint)}
-.ph .at.warn{color:#ffc247}
-.thead,.pr{display:grid;grid-template-columns:40px 56px minmax(0,1fr) 128px 92px;gap:12px;align-items:center;padding:7px 16px}
-.thead{font-family:var(--mono);font-size:10px;letter-spacing:1.4px;color:var(--faint);border-bottom:1px solid var(--line)}
+.ph .at.warn{color:var(--amber)}
+.thead,.pr{display:grid;grid-template-columns:40px 56px minmax(0,1fr) 128px 108px;gap:12px;align-items:center;padding:7px 16px}
+.thead{font-family:var(--mono);font-size:10px;letter-spacing:1.8px;color:var(--faint);border-bottom:1px solid var(--line2)}
 .thead .r,.pr .r{text-align:right}
 .pr{border-top:1px solid var(--line);font-size:13px}
 .pool .pr:first-of-type{border-top:0}
-.pr:hover{background:rgba(255,255,255,.05)}
+.pr:hover{background:linear-gradient(90deg,rgba(56,225,255,.1),transparent 62%)}
 .pr .no{font-family:var(--mono);font-size:11.5px;color:var(--faint)}
-.pr .th{width:56px;height:34px;border-radius:2px;object-fit:cover;background:var(--slot);display:block}
-.pr .sp{width:56px;height:34px;border-radius:2px;background:var(--slot);display:block}
+.pr .th{width:56px;height:34px;border-radius:2px;object-fit:cover;background:var(--slot);display:block;
+  border:1px solid var(--edge)}
+.pr .sp{width:56px;height:34px;border-radius:2px;background:var(--slot);display:block;border:1px solid var(--edge)}
 .pr .ti{font-weight:600;font-size:13.5px}
 .pr .ti a{color:inherit;text-decoration:none}
-.pr .ti a:hover{color:var(--amber)}
+.pr .ti a:hover{color:var(--cy)}
 .pr .sb{color:var(--dimmer);font-size:11.5px;margin-top:1px;overflow-wrap:anywhere}
-.pr .dt{font-family:var(--mono);font-size:11.5px;color:var(--amber)}
+.pr .dt{font-family:var(--mono);font-size:11.5px;color:var(--cy)}
 .pr .dt.none{color:var(--faint)}
-.pr .cn{font-family:var(--mono);font-size:14.5px;text-align:right;letter-spacing:-.3px}
-.pr .cn i{font-style:normal;font-size:10.5px;color:var(--dimmer);margin-left:2px}
-.more{appearance:none;cursor:pointer;font:inherit;font-family:var(--mono);font-size:11.5px;letter-spacing:1px;
-  color:var(--dim);background:transparent;border:0;border-top:1px solid var(--line);width:100%;padding:11px 16px;text-align:left}
-.more:hover{color:var(--amber);background:rgba(240,185,85,.1)}
+/* 预约数下面那根条只在本家表内有意义（页脚第 2 条已经写明四家各排各的），跨表不许对着看 */
+.cn{font-family:var(--mono);font-size:15px;text-align:right;letter-spacing:-.3px;
+  text-shadow:0 0 14px rgba(56,225,255,.28)}
+.cn>i{font-style:normal;font-size:10.5px;color:var(--dimmer);margin-left:2px;letter-spacing:0;text-shadow:none}
+.bw{display:block;height:2px;margin-top:5px;background:rgba(80,190,255,.16)}
+.bw>i{display:block;height:100%;width:var(--w,0);background:linear-gradient(90deg,var(--qq),var(--cy));
+  box-shadow:0 0 8px var(--cyd)}
+.more{appearance:none;cursor:pointer;font:inherit;font-family:var(--mono);font-size:11.5px;letter-spacing:2px;
+  color:var(--cy);background:transparent;border:0;border-top:1px solid var(--line);width:100%;padding:11px 16px;text-align:left}
+.more:hover{background:linear-gradient(90deg,rgba(56,225,255,.14),transparent 70%)}
 
 /* ── 页脚 ── */
-footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line2);color:var(--dimmer);font-size:12.5px}
-footer .fl{font-family:var(--mono);font-size:10.5px;letter-spacing:1.6px;color:var(--faint);margin-bottom:8px}
+footer{margin-top:46px;padding-top:16px;border-top:1px solid var(--line2);color:var(--dimmer);font-size:12.5px;position:relative}
+footer::before{content:"";position:absolute;left:0;top:-1px;width:150px;height:1px;
+  background:linear-gradient(90deg,var(--cy),transparent);box-shadow:0 0 12px var(--cy)}
+footer .fl{font-family:var(--mono);font-size:10.5px;letter-spacing:2px;color:var(--cy);margin-bottom:8px}
 footer ol{margin:0;padding:0;list-style:none;counter-reset:f}
-footer li{counter-increment:f;padding:4px 0 4px 30px;position:relative;max-width:88ch}
+footer li{counter-increment:f;padding:4px 0 4px 32px;position:relative;max-width:88ch}
 footer li::before{content:counter(f,decimal-leading-zero);position:absolute;left:0;top:4px;
-  font-family:var(--mono);font-size:10.5px;color:var(--faint)}
+  font-family:var(--mono);font-size:10.5px;color:var(--cy);opacity:.75}
+
+/* ── 大屏那一档：一屏装下、页面不滚 ──
+   门槛写成「够宽 AND 够高」，是因为只够宽不够高时四格会各被裁在半行上；
+   1440 宽是让中间那两列摆成 2×2（每格能露 4~6 行）的下限，再窄就不该硬铺。
+   不达标就走单列流水版 —— 同一批数据、同一套渲染，那个版本才是能一次看全的。 */
+@media (min-width:1440px) and (min-height:860px){
+  body:not(.plain){height:100vh;overflow:hidden}
+  body:not(.plain) .wrap{max-width:none;height:100vh;padding:12px 14px 10px;
+    display:grid;gap:10px;grid-template-columns:260px minmax(0,1fr) 300px;
+    grid-template-rows:auto auto minmax(0,1fr) auto;
+    grid-template-areas:"hd hd hd" "kp kp kp" "lf cf rg" "ft ft ft"}
+  body:not(.plain) .band{display:flex;flex-direction:column;gap:8px;grid-area:kp;min-height:0}
+  body:not(.plain) .top{grid-area:hd;padding:12px 0;flex-wrap:nowrap}
+  body:not(.plain) .top::after{width:100%;height:1px;
+    background:linear-gradient(90deg,transparent,rgba(56,225,255,.6) 26%,rgba(56,225,255,.6) 74%,transparent)}
+  body:not(.plain) h1{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    font-size:22px;letter-spacing:6px;white-space:nowrap}
+  .viewbtn{display:inline-flex;align-items:center;appearance:none;cursor:pointer;font:inherit;font-family:var(--mono);font-size:11px;
+    letter-spacing:1.6px;color:var(--cy);background:rgba(56,225,255,.08);border:1px solid var(--edge);
+    padding:7px 12px;margin-left:12px;flex:none}
+  .viewbtn:hover{background:rgba(56,225,255,.2);box-shadow:0 0 16px -4px var(--cyd)}
+
+  body:not(.plain) section{margin:0;display:flex;flex-direction:column;min-height:0}
+  body:not(.plain) .sh{padding-bottom:8px}
+  body:not(.plain) h2{font-size:14px;letter-spacing:2.5px}
+  body:not(.plain) .rv{font-size:34px;letter-spacing:-1.5px}
+  body:not(.plain) .pan::before,body:not(.plain) .pan::after{width:9px;height:9px}
+
+  /* 左：动静 */
+  body:not(.plain) #secDiff{grid-area:lf}
+  body:not(.plain) .days{margin-top:10px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;
+    scrollbar-width:none}
+  body:not(.plain) .day{padding:6px 12px;font-size:11.5px}
+  body:not(.plain) .evs{flex:1;min-height:0;overflow:hidden;scroll-behavior:smooth}
+  body:not(.plain) .ev{grid-template-columns:56px minmax(0,1fr);row-gap:1px;padding:8px 12px;font-size:12.5px}
+  body:not(.plain) .ev .ti{font-size:13.5px}
+  body:not(.plain) .ev .nt{grid-column:2;text-align:left;font-size:11px}
+
+  /* 中：剧集库，四格各自慢慢往上轮播 */
+  body:not(.plain) #secPools{grid-area:cf}
+  body:not(.plain) #pools{flex:1;min-height:0;margin-top:8px;display:grid;gap:8px;
+    grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr))}
+  body:not(.plain) .pool{margin:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+  body:not(.plain) .ph{padding:7px 12px;gap:10px}
+  body:not(.plain) .ph .nm{font-size:13px;letter-spacing:1.6px}
+  body:not(.plain) .ph .at{font-size:10.5px}
+  body:not(.plain) .thead,.body:not(.plain) .pr{gap:9px;padding:5px 12px}
+  body:not(.plain) .thead{grid-template-columns:28px 40px minmax(0,1fr) 78px;font-size:9.5px;letter-spacing:1.5px}
+  /* 表头那一列「档期」在大屏那一档里收掉 —— 行里已经没有那一格了，留着列名会误导。 */
+  body:not(.plain) .thead span:nth-child(4){display:none}
+  body:not(.plain) .pr{border-top:1px solid var(--line)}
+  body:not(.plain) .pr.wide{grid-template-columns:28px 40px minmax(0,1fr) 78px;align-items:center}
+  body:not(.plain) .pr .th,body:not(.plain) .pr .sp{width:40px;height:27px}
+  body:not(.plain) .pr .ti{font-size:13px}
+  /* 类型/主演那一行压成一行、末尾打点：它只是补充，值得让人鼠标停在上面看全文，
+     不值得每一行都占掉两到三行的高度。全文在「完整清单」那一版整行印着。 */
+  body:not(.plain) .pr .sb{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  body:not(.plain) .pr .dt{font-family:var(--mono);font-size:10.5px;color:var(--cy);margin-top:1px}
+  body:not(.plain) .cn{font-size:14px}
+  body:not(.plain) [data-body]{flex:1;min-height:0;overflow:hidden;scroll-behavior:smooth;scrollbar-width:none}
+
+  /* 右：已排档期 */
+  body:not(.plain) #secDated{grid-area:rg}
+  body:not(.plain) #datedBox{flex:1;min-height:0;overflow:hidden;scroll-behavior:smooth;scrollbar-width:none}
+  body:not(.plain) .dcard{grid-template-columns:66px minmax(0,1fr);gap:12px;padding:12px;margin-top:8px}
+  body:not(.plain) .dcard:first-child{margin-top:8px}
+  body:not(.plain) .dcard .po{width:66px;height:94px}
+  body:not(.plain) .dcard h3{font-size:17px;letter-spacing:1px;margin:4px 0 2px}
+  body:not(.plain) .kick{letter-spacing:1.6px}
+  body:not(.plain) .ln,body:not(.plain) .cs{font-size:11.5px}
+  body:not(.plain) .tl{margin-top:9px;gap:10px}
+  body:not(.plain) .wn{font-size:13.5px}
+  body:not(.plain) .dc-r{grid-column:1/-1;flex-direction:row;align-items:flex-end;
+    justify-content:space-between;text-align:left;margin-top:9px}
+  body:not(.plain) .dc-r .v{font-size:26px}
+
+  /* 页脚折成两栏，四句口径一行都不少 */
+  body:not(.plain) footer{grid-area:ft;margin:0;padding:8px 0 0;font-size:11.5px}
+  body:not(.plain) footer .fl{margin-bottom:3px}
+  body:not(.plain) footer ol{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px 26px}
+  body:not(.plain) footer li{padding:1px 0 1px 24px;max-width:none;line-height:1.5}
+  body:not(.plain) .empty{padding:12px 14px;font-size:11.5px}
+  body:not(.plain) [data-roll]{scrollbar-width:none}
+}
 
 @media (max-width:760px){
+  h1{font-size:17px;letter-spacing:2.5px}
   .readout{grid-template-columns:repeat(2,1fr)}
   .rd{border-top:1px solid var(--line)}
   .rd:nth-child(-n+2){border-top:0}
   .rd:last-child{grid-column:1/-1}
-  .rv{font-size:22px}
+  .rv{font-size:25px}
   .stat{margin-left:0;order:5}
   .dcard{grid-template-columns:96px minmax(0,1fr);gap:14px}
   .dcard .po{width:96px;min-height:124px}
-  .dc-r{grid-column:1/-1;flex-direction:row;align-items:flex-end;justify-content:flex-start;gap:8px;text-align:left}
-  .dc-r .v{font-size:22px}
+  .dc-r{grid-column:1/-1;flex-direction:row;align-items:flex-end;justify-content:flex-start;gap:10px;text-align:left}
+  .dc-r .v{font-size:26px}
   .thead{display:none}
   .thead,.pr{grid-template-columns:32px 46px minmax(0,1fr) auto}
   .pr .th,.pr .sp{width:46px;height:28px}
@@ -147,6 +292,7 @@ footer li::before{content:counter(f,decimal-leading-zero);position:absolute;left
   .pr .cn{grid-column:4;grid-row:1}
   .ev{grid-template-columns:64px minmax(0,1fr);row-gap:2px}
   .ev .nt{grid-column:2;text-align:left}
+  .pan::before,.pan::after{width:8px;height:8px}
 }
 </style>
 </head>
@@ -155,21 +301,24 @@ footer li::before{content:counter(f,decimal-leading-zero);position:absolute;left
   <header class="top">
     <div class="mark">播</div>
     <h1>爱优腾芒排播系统</h1>
-    <div class="stat"><span id="stat">正在读档案…</span></div>
+    <div class="stat"><span class="dot" aria-hidden="true"></span><span id="stat">正在读档案…</span></div>
+    <button class="viewbtn" type="button" id="viewBtn">完整清单</button>
   </header>
 
-  <div class="readout" id="readout"></div>
-  <div id="warns"></div>
+  <div class="band">
+    <div class="readout pan" id="readout"></div>
+    <div id="warns"></div>
+  </div>
 
   <section id="secDiff">
     <div class="sh"><span class="sn">01</span><h2>动静</h2><span class="n" id="diffN"></span></div>
-    <div class="days" id="dayChips"></div>
-    <div class="evs" id="diffBox"><p class="empty">…</p></div>
+    <div class="days pan" id="dayChips"></div>
+    <div class="evs pan" id="diffBox" data-roll><p class="empty">…</p></div>
   </section>
 
   <section id="secDated">
     <div class="sh"><span class="sn">02</span><h2>已排档期</h2><span class="n" id="datedN"></span></div>
-    <div id="datedBox"></div>
+    <div id="datedBox" data-roll></div>
   </section>
 
   <section id="secPools">
@@ -181,7 +330,7 @@ footer li::before{content:counter(f,decimal-leading-zero);position:absolute;left
     <div class="fl">口径</div>
     <ol>
       <li>「即将上线」是各平台自己摆的那一屏，不是排期表 —— 四家都没有公开的「未来哪天播什么」日历。</li>
-      <li>剧集库四家各排各的，按预约人数从多到少；人数一样的里面，已经排到日期的那几部会先出现。</li>
+      <li>剧集库四家各排各的，按预约人数从多到少；人数一样的里面，已经排到日期的那几部会先出现。数字下面那根条按本家这一表里的最大值算，只在本家表内比长短。</li>
       <li>爱奇艺那份清单里连专辑页地址都没有，点片名跳的是站内搜索结果。</li>
       <li>芒果那个模块不给类型和主演，所以它每一行的那两格是空的，不是没采到。</li>
     </ol>
@@ -230,22 +379,60 @@ function thumb(it, cls){
        + `onerror="this.style.visibility='hidden'">`;
 }
 /* 序号取的是这一屏渲染时的位次（预约数从多到少），不是档案里那个站内序号。 */
-function prow(it, no){
+function prow(it, no, max, wide){
   const cnt = fmtCount(it.count);
   const sub = [it.genre, it.cast ? '主演 ' + it.cast : '', it.eps ? it.eps + ' 集' : '',
     /* 档位文字只在精确人数拿不到时才印 —— 两个口径摆在同一格里，看的人会以为能互相比。 */
     (it.hot && it.count == null ? it.hot : '')].filter(Boolean).join(' · ');
-  return `<div class="pr">
+  /* 那根条按「本家这一表里的最大预约数」归一，所以只在同一张表内比长短；
+     跨表比会等于把四家不同口径的账摆在一起，页脚第 2 条说的就是这件事。 */
+  const w = cnt && max > 0 ? Math.max(2, Math.round(it.count / max * 100)) : 0;
+  /* 大屏那一档把「档期」并进片名下面：164 条里只有 2 条有日期，为它们单留一列
+     等于让其余每一行都空着一格，而那一格正好是从片名身上扣的。
+     「完整清单」那一版仍给它整列 —— 那边是逐行看的地方。 */
+  const dtCell = wide ? '' : (it.date ? `<span class="dt">${esc(dateLabel(it))}</span>`
+    : '<span class="dt none">—</span>');
+  const dtIn = wide && it.date ? `<div class="dt">${esc(dateLabel(it))}</div>` : '';
+  return `<div class="pr${wide ? ' wide' : ''}">
     <span class="no">${String(no).padStart(2,'0')}</span>
     ${thumb(it,'th')}
     <div><div class="ti"><a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a></div>
-      ${sub?`<div class="sb">${esc(sub)}</div>`:''}</div>
-    ${it.date?`<span class="dt">${esc(dateLabel(it))}</span>`:`<span class="dt none">—</span>`}
-    ${cnt?`<span class="cn">${cnt.v}<i>${cnt.u}人</i></span>`:'<span class="cn"></span>'}
+      ${sub?`<div class="sb" title="${esc(sub)}">${esc(sub)}</div>`:''}${dtIn}</div>
+    ${dtCell}
+    ${cnt?`<div class="cn">${cnt.v}<i>${cnt.u}人</i><span class="bw"><i style="--w:${w}%"></i></span></div>`
+         :'<div class="cn"></div>'}
   </div>`;
 }
 
-let AT = '';
+/* ── 大屏那一档：显示模式，不是砍数据 ──
+   一屏装不下 164 条，所以每一格自己往上轮播；鼠标停在格子里就停住。
+   要看全就按顶上的「完整清单」退回单列流水版 —— 那一份和这一版是同一批数据、同一套渲染。 */
+const WIDE = matchMedia('(min-width:1440px) and (min-height:860px)');
+const screenOn = () => WIDE.matches && !document.body.classList.contains('plain');
+const CALM = matchMedia('(prefers-reduced-motion:reduce)');
+let rollers = [];
+function stopRoll(){ rollers.forEach(clearInterval); rollers = []; }
+function startRoll(){
+  stopRoll();
+  if(!screenOn() || CALM.matches) return;
+  document.querySelectorAll('[data-roll]').forEach(box => {
+    let hold = 0;
+    rollers.push(setInterval(() => {
+      if(box.matches(':hover')) return;
+      if(box.scrollHeight <= box.clientHeight + 4){ box.scrollTop = 0; return; }
+      const c = box.children;
+      /* 步长取「两行之间的实际间距」而不是行高：卡片那种带外边距的，按行高滚会越滚越偏。 */
+      const step = c.length > 1 ? c[1].offsetTop - c[0].offsetTop
+        : (c[0] ? c[0].offsetHeight + 8 : 60);
+      if(box.scrollTop + box.clientHeight >= box.scrollHeight - 4){
+        if(++hold < 2) return;
+        hold = 0; box.scrollTo({top:0, behavior:'smooth'}); return;
+      }
+      box.scrollTo({top:box.scrollTop + step, behavior:'smooth'});
+    }, 2600));
+  });
+}
+
 function renderReadout(V){
   const items = V.items||[];
   const dated = items.filter(x => x.date).length;
@@ -254,19 +441,18 @@ function renderReadout(V){
   const cell = (l,v,u,hot) => `<div class="rd"><div class="rl">${l}</div>`
     + `<div class="rv${hot?' hot':''}">${v}${u?`<i>${u}</i>`:''}</div></div>`;
   document.getElementById('readout').innerHTML =
-    cell('池内条目', items.length, '部')
+    cell('库内条目', items.length, '部')
     + cell('已排档期', dated, '部', dated > 0)
     + cell('最新一天 · 新定档', n('scheduled'), '部', n('scheduled') > 0)
-    + cell('最新一天 · 新进池', n('newIn'), '部')
+    + cell('最新一天 · 新进库', n('newIn'), '部')
     + cell('最新一天 · 撤下', n('out'), '部');
-  /* 某一家这一轮没取到时，池子里留的还是上一次的 —— 只报这件事，不评价它算不算出事。 */
+  /* 某一家这一轮没取到时，库里留的还是上一次的 —— 只报这件事，不评价它算不算出事。 */
   const ws = (V.warnings||[]).map(x => PLAT[x.platform] || x.platform).join('、');
   document.getElementById('warns').innerHTML = ws
     ? `<div class="warns">本轮没取到：${esc(ws)} · 下面那几行留的是上一次取到的那一批</div>` : '';
 }
 
 function renderStatus(V){
-  AT = V.at || '';
   const el = document.getElementById('stat');
   el.innerHTML = '自动更新 · 最后一次更新 ' + '<b>' + esc(V.at || '--') + '</b>';
   if(V.baseline) el.innerHTML += ' <span style="color:var(--dimmer)">· 第一份档案，动静从今天起才开始攒</span>';
@@ -298,7 +484,7 @@ function renderDiff(V){
   const L = [];
   for(const x of d.scheduled||[]) L.push(['k1','新定档', x, `${dateLabel(x)} 开播 · ${countdown(x.date, V.at)}`]);
   for(const x of d.rescheduled||[]) L.push(['k2','改档', x, `${x.from} → ${x.to}`]);
-  for(const x of d.newIn||[]) L.push(['k3','新进池', x, '']);
+  for(const x of d.newIn||[]) L.push(['k3','新进库', x, '']);
   for(const x of d.out||[]) L.push(['k4','撤下', x, '']);
   box.innerHTML = L.length ? L.map(([cls,lab,x,note]) =>
     `<div class="ev ${cls}"><span class="kind">${lab}</span>`
@@ -313,11 +499,11 @@ function renderDated(V){
   const list = (V.items||[]).filter(x => x.date).sort((a,b) => String(a.date).localeCompare(String(b.date)));
   document.getElementById('datedN').textContent = list.length ? `${list.length} 部` : '暂无';
   if(!list.length){
-    box.innerHTML = '<p class="empty" style="border:1px solid var(--line);background:var(--pan)">此刻四家里一部都没有对外公布开播日期。上一栏的「新定档」有动静时，这里就会跟着出现东西。</p>';
+    box.innerHTML = '<p class="empty pan">此刻四家里一部都没有对外公布开播日期。上一栏的「新定档」有动静时，这里就会跟着出现东西。</p>';
     return;
   }
   const cnt = it => { const c = fmtCount(it.count); return c ? `<div class="v">${c.v}<i>${c.u}</i></div><div class="l">人预约</div>` : '<div class="l">这家没给预约数</div>'; };
-  box.innerHTML = list.map(it => `<div class="dcard" style="border-left:2px solid var(--${it.platform})">
+  box.innerHTML = list.map(it => `<div class="dcard pan" style="border-left:2px solid var(--${it.platform})">
     ${thumb(it,'po')}
     <div>
       <div class="kick">已排档期 · ${esc(PLAT[it.platform]||it.platform)}</div>
@@ -338,21 +524,22 @@ function renderPools(V){
     const list = items.filter(x => x.platform === k);
     const at = (V.platformAt||{})[k];
     const stale = at && V.at && at !== V.at;
-    return `<div class="pool">
+    return `<div class="pool pan">
       <div class="ph" style="--c:var(--${k})">
         <span class="nm">${PLAT[k]}</span><span class="ct">${list.length} 部</span>
         <span class="at${stale?' warn':''}">这批数字来自 ${esc(at||'--')}</span>
       </div>
       <div class="thead"><span>NO</span><span></span><span>片名</span><span>档期</span><span class="r">预约</span></div>
-      <div data-body="${k}"></div>
+      <div data-body="${k}" data-roll></div>
     </div>`;
   }).join('');
   for(const k of Object.keys(PLAT)){
     const host = box.querySelector(`[data-body="${k}"]`);
     const list = items.filter(x => x.platform === k);
     if(!list.length){ host.innerHTML = '<p class="empty">这一家今天一条都没取到。</p>'; continue; }
-    const CUT = 20;
-    const paint = n => host.innerHTML = list.slice(0,n).map((x,i) => prow(x, i+1)).join('')
+    const max = list.reduce((a,x) => Math.max(a, x.count||0), 0);
+    const CUT = screenOn() ? list.length : 20;
+    const paint = n => host.innerHTML = list.slice(0,n).map((x,i) => prow(x, i+1, max, screenOn())).join('')
       + (n < list.length ? `<button class="more" type="button" data-k="${k}">展开全部 ${list.length} 部 ▾</button>` : '');
     paint(CUT);
     const b = host.querySelector('.more');
@@ -360,15 +547,27 @@ function renderPools(V){
   }
 }
 
+let V = null;
+function renderAll(){
+  if(!V) return;
+  renderStatus(V); renderReadout(V); renderDiff(V); renderDated(V); renderPools(V);
+  document.getElementById('viewBtn').textContent = screenOn() ? '完整清单' : '回到大屏';
+  startRoll();
+}
+
 async function boot(){
-  let V;
   try{ V = await fetch('paibo.json',{cache:'no-store'}).then(r => { if(!r.ok) throw new Error(r.status); return r.json(); }); }
   catch(e){
     document.getElementById('stat').textContent = '没读到档案（paibo.json 打不开）';
     document.getElementById('diffBox').innerHTML = '<p class="empty">档案读不到，页面就没有东西可印。</p>';
     return;
   }
-  renderStatus(V); renderReadout(V); renderDiff(V); renderDated(V); renderPools(V);
+  document.getElementById('viewBtn').onclick = () => {
+    document.body.classList.toggle('plain'); stopRoll(); renderAll();
+  };
+  /* 窗口从大屏尺寸拖小的那一刻，轮播必须跟着停 —— 不然单列版里会有一堆看不见的定时器在推滚动条。 */
+  WIDE.addEventListener('change', () => renderAll());
+  renderAll();
 }
 boot();
 </script>
