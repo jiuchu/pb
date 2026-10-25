@@ -12,7 +12,7 @@
 //         → 首页模块 12440 内嵌的 vsubscribe DSL，10 条，带 onlineTime（Unix 秒）
 //         外加逐条 m.mgtv.com/b/<aid> 两跳到移动端 SSR 的 reserveInfo[0].yyNum（精确预约数）
 //   爱奇艺 A 路 GET pcw-api.iqiyi.com/search/recommend/list?...market_release_date_level=即将上线
-//         → 3 页 98 条，只有片名/主演/集数/简介
+//         → 3 页整池（这一家自己会抖：本机 98、线上 94），只有片名/主演/集数/简介
 //   爱奇艺 B 路 GET mesh.if.iqiyi.com/portal/lw/videolib/data（要 device_id，见 PAIBO_IQY_DID）
 //         → 同一池子里那 40 条，唯一带 showDate 的一路
 //   爱奇艺 C 路 GET subscription.iqiyi.com/services/subscribe/countAndState.htm
@@ -42,7 +42,7 @@
 //   PAIBO_PROBE    1 = 取数、打印、不写文件（用来验 Actions 的机房 IP 能不能取到数）
 //   PAIBO_IQY_DID  爱奇艺 B 路要的 device_id（每台浏览器一个的设备标识，31 位小写字母数字）。
 //                  ⚠ 只走环境变量 + 仓库 Secret：绝不写进代码正文、绝不提交、绝不打进日志。
-//                  没给就整段跳过 B 路 —— 爱奇艺那一格照常回 98 条、照常带预约人数，只是没有定档日。
+//                  没给就整段跳过 B 路 —— 爱奇艺那一格照常回整池、照常带预约人数，只是没有定档日。
 
 import fs from 'node:fs';
 
@@ -281,7 +281,7 @@ function mgItem(r) {
 }
 
 // ---------- 爱奇艺 ----------
-// A 路（推荐流口）：匿名、不需要 device_id，覆盖 98 条，但整份一个日期都没有。
+// A 路（推荐流口）：匿名、不需要 device_id，覆盖整池（九十多条），但整份一个日期都没有。
 // B 路（videolib/data）：唯一带 showDate 的那条，要一个真实 device_id。
 //   上一轮判「这个口被风控、不能无人值守」是错的 —— 拦人的不是 device_id，是参数集：
 //   把 market_release_date_level 当顶层 query、版本串写死成 17.0.63，15 组猜测全回 261 字节的空数组。
@@ -316,7 +316,7 @@ async function fetchIQ() {
   }
   if (!pages) return { ok: false, msg: '爱奇艺 recommend/list 一条都没回' };
   const d = dedupe(out);
-  if (d.length < 30) return { ok: false, msg: `爱奇艺只回了 ${d.length} 条，比平时（98）少太多，这轮不用` };
+  if (d.length < 30) return { ok: false, msg: `爱奇艺只回了 ${d.length} 条，比平时（九十多条）少太多，这轮不用` };
   const got = await fillIQCounts(d);
   const note = `预约人数取到 ${got}/${d.length} 条（一发带 60 个 albumId，不靠 device_id）`
     + '；' + await enrichIQ(d);
@@ -436,7 +436,14 @@ export function diff(prev, items, livePlatforms) {
   const by = a => a.sort((x, y) => (x.platform + x.title).localeCompare(y.platform + y.title, 'zh'));
   return { scheduled: by(scheduled), rescheduled: by(rescheduled), newIn: by(newIn), out: by(out) };
 }
-const brief = x => ({ id: x.id, platform: x.platform, title: x.title, date: x.date || null });
+/* 事件行为什么带 pos：屏内序号每拍会被下一拍覆盖，「在前的快要定档」这句话要回测的是
+   定档/进池**那一刻**它排第几 —— 不跟着事件存下来，攒多少天都只剩「今天这一屏」。
+   对照组不用另存：days[].counts 就是同一拍的池子条数，pos 若与定档无关就该是均匀分布。
+   撤下那一行的 pos 是它最后一次已知的序号（那一家当天没取到时，它是上一拍的）。 */
+const brief = x => ({
+  id: x.id, platform: x.platform, title: x.title, date: x.date || null,
+  pos: Number.isInteger(x.pos) && x.pos > 0 ? x.pos : null,
+});
 
 /* 一天里的多拍合成一格：同一条只记第一次发生，时刻推进到最新。
    否则「今日新定档」会把同一部片在四拍里印四遍。 */
@@ -461,16 +468,18 @@ export function build(prevDoc, results, at) {
   const prevItems = Array.isArray(prevDoc && prevDoc.items) ? prevDoc.items : [];
   const live = new Map(Object.entries(results).filter(([, r]) => r.ok).map(([k, r]) => [k, r.items]));
   const warnings = Object.entries(results).filter(([, r]) => !r.ok).map(([k, r]) => ({ platform: k, msg: r.msg }));
-  // 取到的覆盖同平台的旧条目，没取到的把旧条目留着（并记一条警告）。
   /* 站内序号 pos：上游那一屏从上到下排第几（1 起，平台内）。
-     腾讯 coming_soon 那 36 条连打三次顺序逐条一致，所以它是页面给的定序，不是每次摇出来的
-     （接口名里那个 scms_shake 只是模块名）。
+     它是页面给的定序、不是每次摇出来的（接口名里那个 scms_shake 只是模块名）：
+     腾讯 coming_soon 那 36 条连打三次顺序逐条一致。
+     ⚠ 但「一致」只在分钟级成立 —— 19:34 和 21:56 两相比，腾讯 36 条动了 13 条、爱奇艺 94 条动了 56 条，
+     优酷和芒果那两屏一条没动。所以 pos 是「这一拍那一屏」的快照，不是这部片子的固定编号。
      写在这里不写在 fetch 里：四家各有各的返回路径，漏一家就少一家，而这一处保证不漏；
      ⚠ 但必须在下面那个 sort 之前 —— 落盘前按预约数重排之后，原来的屏内次序就已经没了。
      取数失败那一家走的是 kept 那条路，它的旧序号原样留着，不会被这一轮的空结果打乱。
-     为什么现在就存：「排在前面 = 快要定档」这个说法只能拿历史回测，今天不记就永远补不回来。 */
+     光存 items 里这一份会被下一拍覆盖，所以事件行也各带一份，见 brief()。 */
   for (const its of live.values()) its.forEach((x, i) => { x.pos = i + 1; });
   const kept = prevItems.filter(x => !live.has(x.platform));
+  // 取到的覆盖同平台的旧条目，没取到的把旧条目留着（并记一条警告）。
   const items = [...kept, ...[...live.values()].flat()];
   /* 站内排序：先按预约人数从多到少，人数一样的把已经排到日期的顶到最前，
      档期近的又比档期远的靠前。原来那一版是 date 降序，接上爱奇艺 B 路之后会让
