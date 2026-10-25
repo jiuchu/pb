@@ -168,7 +168,7 @@ h2{font-size:16px;margin:0;letter-spacing:3px;font-weight:600}
 .pr .sb{color:var(--dimmer);font-size:11.5px;margin-top:1px;overflow-wrap:anywhere}
 .pr .dt{font-family:var(--mono);font-size:11.5px;color:var(--cy)}
 .pr .dt.none{color:var(--faint)}
-/* 预约数下面那根条只在本家表内有意义（页脚第 2 条已经写明四家各排各的），跨表不许对着看 */
+/* 预约数下面那根条只在本家表内有意义（四家各数各的账），跨表不许对着看 */
 .cn{font-family:var(--mono);font-size:15px;text-align:right;letter-spacing:-.3px;
   text-shadow:0 0 14px rgba(56,225,255,.28)}
 .cn>i{font-style:normal;font-size:10.5px;color:var(--dimmer);margin-left:2px;letter-spacing:0;text-shadow:none}
@@ -179,26 +179,16 @@ h2{font-size:16px;margin:0;letter-spacing:3px;font-weight:600}
   color:var(--cy);background:transparent;border:0;border-top:1px solid var(--line);width:100%;padding:11px 16px;text-align:left}
 .more:hover{background:linear-gradient(90deg,rgba(56,225,255,.14),transparent 70%)}
 
-/* ── 页脚 ── */
-footer{margin-top:46px;padding-top:16px;border-top:1px solid var(--line2);color:var(--dimmer);font-size:12.5px;position:relative}
-footer::before{content:"";position:absolute;left:0;top:-1px;width:150px;height:1px;
-  background:linear-gradient(90deg,var(--cy),transparent);box-shadow:0 0 12px var(--cy)}
-footer .fl{font-family:var(--mono);font-size:10.5px;letter-spacing:2px;color:var(--cy);margin-bottom:8px}
-footer ol{margin:0;padding:0;list-style:none;counter-reset:f}
-footer li{counter-increment:f;padding:4px 0 4px 32px;position:relative;max-width:88ch}
-footer li::before{content:counter(f,decimal-leading-zero);position:absolute;left:0;top:4px;
-  font-family:var(--mono);font-size:10.5px;color:var(--cy);opacity:.75}
-
 /* ── 大屏那一档：一屏装下、页面不滚 ──
    门槛写成「够宽 AND 够高」，是因为只够宽不够高时四格会各被裁在半行上；
    1440 宽是让中间那两列摆成 2×2（每格能露 4~6 行）的下限，再窄就不该硬铺。
    不达标就走单列流水版 —— 同一批数据、同一套渲染，那个版本才是能一次看全的。 */
 @media (min-width:1440px) and (min-height:860px){
   body:not(.plain){height:100vh;overflow:hidden}
-  body:not(.plain) .wrap{max-width:none;height:100vh;padding:12px 14px 10px;
+  body:not(.plain) .wrap{max-width:none;height:100vh;padding:12px 14px;
     display:grid;gap:10px;grid-template-columns:260px minmax(0,1fr) 300px;
-    grid-template-rows:auto auto minmax(0,1fr) auto;
-    grid-template-areas:"hd hd hd" "kp kp kp" "lf cf rg" "ft ft ft"}
+    grid-template-rows:auto auto minmax(0,1fr);
+    grid-template-areas:"hd hd hd" "kp kp kp" "lf cf rg"}
   body:not(.plain) .band{display:flex;flex-direction:column;gap:8px;grid-area:kp;min-height:0}
   body:not(.plain) .top{grid-area:hd;padding:12px 0;flex-wrap:nowrap}
   body:not(.plain) .top::after{width:100%;height:1px;
@@ -260,15 +250,10 @@ footer li::before{content:counter(f,decimal-leading-zero);position:absolute;left
   body:not(.plain) .ln,body:not(.plain) .cs{font-size:11.5px}
   body:not(.plain) .tl{margin-top:9px;gap:10px}
   body:not(.plain) .wn{font-size:13.5px}
-  body:not(.plain) .dc-r{grid-column:1/-1;flex-direction:row;align-items:flex-end;
-    justify-content:space-between;text-align:left;margin-top:9px}
+  body:not(.plain) .dc-r{grid-column:1/-1;flex-direction:row;align-items:baseline;
+    justify-content:flex-end;gap:5px;text-align:right;margin-top:9px}
   body:not(.plain) .dc-r .v{font-size:26px}
-
-  /* 页脚折成两栏，四句口径一行都不少 */
-  body:not(.plain) footer{grid-area:ft;margin:0;padding:8px 0 0;font-size:11.5px}
-  body:not(.plain) footer .fl{margin-bottom:3px}
-  body:not(.plain) footer ol{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px 26px}
-  body:not(.plain) footer li{padding:1px 0 1px 24px;max-width:none;line-height:1.5}
+  body:not(.plain) .dc-r .l{margin-top:0}
   body:not(.plain) .empty{padding:12px 14px;font-size:11.5px}
   body:not(.plain) [data-roll]{scrollbar-width:none}
 }
@@ -325,16 +310,6 @@ footer li::before{content:counter(f,decimal-leading-zero);position:absolute;left
     <div class="sh"><span class="sn">03</span><h2>剧集库</h2><span class="n" id="poolN"></span></div>
     <div id="pools"></div>
   </section>
-
-  <footer>
-    <div class="fl">口径</div>
-    <ol>
-      <li>「即将上线」是各平台自己摆的那一屏，不是排期表 —— 四家都没有公开的「未来哪天播什么」日历。</li>
-      <li>剧集库四家各排各的，按预约人数从多到少；人数一样的里面，已经排到日期的那几部会先出现。数字下面那根条按本家这一表里的最大值算，只在本家表内比长短。</li>
-      <li>爱奇艺那份清单里连专辑页地址都没有，点片名跳的是站内搜索结果。</li>
-      <li>芒果那个模块不给类型和主演，所以它每一行的那两格是空的，不是没采到。</li>
-    </ol>
-  </footer>
 </div>
 
 <script>
@@ -385,7 +360,8 @@ function prow(it, no, max, wide){
     /* 档位文字只在精确人数拿不到时才印 —— 两个口径摆在同一格里，看的人会以为能互相比。 */
     (it.hot && it.count == null ? it.hot : '')].filter(Boolean).join(' · ');
   /* 那根条按「本家这一表里的最大预约数」归一，所以只在同一张表内比长短；
-     跨表比会等于把四家不同口径的账摆在一起，页脚第 2 条说的就是这件事。 */
+     跨表比会等于把四家不同口径的账摆在一起 —— 页面上没有地方解释这件事，
+     所以四格各自带自己那一格的表头和条，不许并排看。 */
   const w = cnt && max > 0 ? Math.max(2, Math.round(it.count / max * 100)) : 0;
   /* 大屏那一档把「档期」并进片名下面：164 条里只有 2 条有日期，为它们单留一列
      等于让其余每一行都空着一格，而那一格正好是从片名身上扣的。
