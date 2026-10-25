@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>四站待播池 · 腾讯 / 优酷 / 芒果 / 爱奇艺</title>
+<style>
+:root{
+  --ink:#05060b;--txt:#f4f6fc;--dim:#adb6cd;--dimmer:#8e97b0;
+  --glass:rgba(255,255,255,.045);--line:rgba(255,255,255,.09);--r:16px;
+  --shadow:0 18px 50px -18px rgba(0,0,0,.85);
+  --qq:#4f9dff;--yk:#ffc861;--mg:#ff5f43;--iq:#3ddc97;--gold:#ffc861;
+}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1200px 700px at 15% -10%,#121a34 0%,var(--ink) 60%) fixed;
+  color:var(--txt);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding:26px 18px 64px}
+h1{font-size:26px;margin:0 0 6px;letter-spacing:.5px}
+.sub{color:var(--dim);margin:0 0 4px}
+.status{display:inline-flex;align-items:center;gap:8px;margin-top:12px;padding:6px 12px;border-radius:999px;
+  background:var(--glass);border:1px solid var(--line);color:var(--dimmer);font-size:13px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--iq);box-shadow:0 0 10px var(--iq)}
+section{margin-top:30px}
+h2{font-size:17px;margin:0 0 4px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+h2 .n{font-size:13px;font-weight:400;color:var(--dimmer)}
+.why{color:var(--dimmer);font-size:13px;margin:0 0 14px;max-width:76ch}
+.card{background:var(--glass);border:1px solid var(--line);border-radius:var(--r);padding:16px;box-shadow:var(--shadow)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.chip{appearance:none;cursor:pointer;font:inherit;font-size:13px;color:var(--dim);background:transparent;
+  border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:6px 13px}
+.chip:hover{color:var(--txt);border-color:rgba(255,255,255,.45)}
+.chip[aria-pressed="true"]{color:#08101f;background:var(--gold);border-color:var(--gold);font-weight:600}
+.evt{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
+.evt:first-child{border-top:0;padding-top:2px}
+.tag{flex:none;font-size:12px;padding:2px 9px;border-radius:999px;border:1px solid currentColor;line-height:1.7}
+.tag.new{color:var(--gold)}.tag.mov{color:#ff9d5c}.tag.in{color:var(--iq)}.tag.gone{color:var(--dimmer)}
+.evt b{font-weight:600}
+.evt .m{color:var(--dimmer);font-size:13px}
+.empty{color:var(--dimmer);font-size:14px;margin:2px 0 0}
+.grid{display:grid;gap:12px}
+.row{display:flex;gap:12px;padding:12px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.03)}
+.row:hover{border-color:rgba(255,255,255,.2)}
+.pic{flex:none;width:118px;height:66px;border-radius:9px;object-fit:cover;background:#0d1220}
+.body{flex:1;min-width:0}
+.t{font-weight:600;font-size:15px}
+.t a{color:inherit;text-decoration:none;border-bottom:1px solid rgba(255,255,255,.2)}
+.t a:hover{border-bottom-color:var(--gold);color:var(--gold)}
+.l{color:var(--dim);font-size:13px;margin-top:2px;word-break:break-word}
+.meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px;font-size:12px;color:var(--dimmer)}
+.pill{padding:1px 8px;border-radius:999px;background:rgba(255,255,255,.07);color:var(--dim)}
+.pill.date{background:rgba(255,200,97,.16);color:var(--gold)}
+.pill.todo{background:rgba(255,255,255,.06);color:var(--dimmer)}
+.num{margin-left:auto;flex:none;text-align:right;font-size:13px;color:var(--dim);align-self:center;min-width:74px}
+.num b{display:block;font-size:17px;color:var(--txt);font-variant-numeric:tabular-nums}
+.plat{border-left:3px solid var(--c,var(--line))}
+.more{appearance:none;cursor:pointer;font:inherit;font-size:14px;font-weight:600;color:#08101f;
+  background:var(--c,var(--gold));border:0;border-radius:11px;padding:10px 18px;margin-top:12px}
+.more:hover{filter:brightness(1.12)}
+.note{color:var(--dimmer);font-size:12px;margin:8px 0 0}
+.stale{color:#ffb020}
+footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);color:var(--dimmer);font-size:13px}
+footer ul{margin:8px 0 0;padding-left:20px}
+@media (max-width:560px){
+  h1{font-size:22px}
+  .num{margin-left:0;min-width:0;flex-basis:100%;text-align:left;order:5}
+  .row{flex-wrap:wrap}
+  .pic{width:96px;height:54px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>四站待播池</h1>
+    <p class="sub">腾讯视频 · 优酷 · 芒果TV · 爱奇艺 的「即将上线」，一天两拍，攒下每天的定档动静。</p>
+    <div class="status"><span class="dot"></span><span id="stat">正在读档案…</span></div>
+  </header>
+
+  <section id="secDiff">
+    <h2>每天的动静<span class="n" id="diffN"></span></h2>
+    <p class="why">新定档 = 这一部上一次还没有日期，这一次有了。改档 = 日期变了。新进池 / 撤下 = 平台的待播清单里出现或消失了。</p>
+    <div class="chips" id="dayChips"></div>
+    <div class="card" id="diffBox"><p class="empty">…</p></div>
+  </section>
+
+  <section id="secDated">
+    <h2>已经排到日期的<span class="n" id="datedN"></span></h2>
+    <p class="why">腾讯、芒果、爱奇艺三家会把开播日期写进数据，但要等片方真排上档期才填 —— 绝大多数待播剧在这一栏是空的，那是它们自己还没定，不是漏采。优酷的待播清单里一个日期都没有，所以这一栏天生不会有优酷。</p>
+    <div class="grid" id="datedBox"></div>
+  </section>
+
+  <section id="secPools"><h2>四个池子<span class="n" id="poolN"></span></h2>
+    <p class="why">四家都给得出确切预约人数，但每家数的是各自站内的账，口径不通用，所以各站各排各的、不放一起比大小。</p>
+    <div class="grid" id="pools"></div>
+  </section>
+
+  <footer>
+    几条口径，看之前先说明白：
+    <ul>
+      <li>「即将上线」是各平台自己摆的那一屏，不是排期表 —— 四家都没有公开的「未来哪天播什么」日历。</li>
+      <li>四个池子都按预约人数从多到少排；人数一样的里面，已经排到日期的那几部会先出现。</li>
+      <li>爱奇艺那份清单里连专辑页地址都没有，点片名跳的是站内搜索结果。</li>
+      <li>芒果那个模块不给类型和主演，所以它每一行的那两格是空的，不是没采到。</li>
+    </ul>
+  </footer>
+</div>
+
+<script>
+const PLAT = { qq:'腾讯视频', yk:'优酷', mg:'芒果TV', iq:'爱奇艺' };
+const WD = ['周日','周一','周二','周三','周四','周五','周六'];
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* 人数带上单位，不让人猜这个数是万还是条。过一万切万、过一亿切亿，都只留一位小数。 */
+function fmtCount(n){
+  if(n==null) return null;
+  if(n>=1e8) return {v:(n/1e8).toFixed(1), u:'亿'};
+  if(n>=1e4) return {v:(n/1e4).toFixed(1), u:'万'};
+  return {v:String(n), u:''};
+}
+/* 星期的锚点取当天中午（北京时间）：那一段偏移固定 +08:00，
+   取零点会让 UTC 的日期比北京晚一天，星期跟着错一格。 */
+function weekday(ds){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(ds||''))) return '';
+  const d = new Date(ds + 'T12:00:00+08:00');
+  return isNaN(d) ? '' : WD[d.getUTCDay()];
+}
+function dateLabel(it){
+  if(!it.date) return '';
+  const w = weekday(it.date);
+  const md = it.date.slice(5);
+  return [w ? w+' '+md : md, it.time].filter(Boolean).join(' ');
+}
+
+function thumb(it){
+  if(!it.pic) return `<div class="pic" aria-hidden="true"></div>`;
+  return `<img class="pic" loading="lazy" src="${esc(it.pic)}" alt="" referrerpolicy="no-referrer" `
+       + `onerror="this.style.visibility='hidden'">`;
+}
+function row(it){
+  const cnt = fmtCount(it.count);
+  const dl = dateLabel(it);
+  const meta = [];
+  if(it.genre) meta.push(`<span class="pill">${esc(it.genre)}</span>`);
+  if(it.cast) meta.push(`<span>主演 ${esc(it.cast)}</span>`);
+  if(it.eps) meta.push(`${it.eps} 集`);
+  /* 「预约破300万」那种档位文字，只在右边那个精确人数拿不到时才印 ——
+     两个口径同时摆在一片行里，看的人会以为是可以互相比的两个数。 */
+  if(it.hot && it.count == null) meta.push(`<span class="pill">${esc(it.hot)}</span>`);
+  /* 右边这一整格只在一时一家都没给数字时才空着；一家 98 行全写「平台未给」是噪音。 */
+  return `<div class="row">
+    ${thumb(it)}
+    <div class="body">
+      <div class="t"><a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a></div>
+      ${it.line?`<div class="l">${esc(it.line)}</div>`:''}
+      <div class="meta">
+        ${dl?`<span class="pill date">${esc(dl)} 开播</span>`:`<span class="pill todo">待定档</span>`}
+        ${meta.join('')}
+      </div>
+    </div>
+    ${cnt?`<div class="num"><b>${cnt.v}${cnt.u}</b>人预约</div>`:''}
+  </div>`;
+}
+
+function renderStatus(V){
+  const el = document.getElementById('stat');
+  el.textContent = '自动重采 · 最后一次采集 ' + (V.at || '--');
+  if(V.baseline) el.textContent += ' · 这是第一份档案，动静从今天起才开始攒';
+}
+
+let SEL = null;
+function eventDays(V){
+  return (V.days||[]).slice().reverse().filter(d =>
+    (d.scheduled||[]).length || (d.rescheduled||[]).length || (d.newIn||[]).length || (d.out||[]).length);
+}
+function renderDiff(V){
+  const box = document.getElementById('diffBox'), chips = document.getElementById('dayChips');
+  const ds = eventDays(V);
+  document.getElementById('diffN').textContent = ds.length ? `（攒了 ${(V.days||[]).length} 天，其中 ${ds.length} 天有动静）` : '';
+  if(!ds.length){
+    chips.innerHTML = '';
+    box.innerHTML = `<p class="empty">${V.baseline
+      ? '第一份档案里没有「上一轮」，所以这一天什么都比不出来。两拍之后这里就开始有东西了。'
+      : '档案攒了 ' + (V.days||[]).length + ' 天，四家的待播清单一条都没动过。'}</p>`;
+    return;
+  }
+  if(!SEL || !ds.some(d => d.day === SEL)) SEL = ds[0].day;
+  chips.innerHTML = ds.slice(0,10).map(d => {
+    const on = d.day === SEL;
+    return `<button class="chip" type="button" aria-pressed="${on}" data-day="${d.day}">${d.day.slice(5)}</button>`;
+  }).join('');
+  chips.querySelectorAll('.chip').forEach(b => b.onclick = () => { SEL = b.dataset.day; renderDiff(V); });
+  const d = ds.find(x => x.day === SEL);
+  const L = [];
+  for(const x of d.scheduled||[]) L.push(['new','新定档', x, `${dateLabel(x)} 开播`]);
+  for(const x of d.rescheduled||[]) L.push(['mov','改档', x, `${x.from} → ${x.to}`]);
+  for(const x of d.newIn||[]) L.push(['in','新进池', x, '']);
+  for(const x of d.out||[]) L.push(['gone','撤下', x, '']);
+  box.innerHTML = L.length ? L.map(([cls,lab,x,note]) =>
+    `<div class="evt"><span class="tag ${cls}">${lab}</span><span><b>${esc(x.title)}</b> `
+    + `<span class="m">· ${esc(PLAT[x.platform]||x.platform)}</span></span>`
+    + (note?`<span class="m" style="margin-left:auto">${esc(note)}</span>`:'') + `</div>`).join('')
+    : '<p class="empty">这一天没有动静。</p>';
+}
+
+function renderDated(V){
+  const box = document.getElementById('datedBox');
+  const list = (V.items||[]).filter(x => x.date).sort((a,b) => String(a.date).localeCompare(String(b.date)));
+  document.getElementById('datedN').textContent = list.length ? `（${list.length} 部）` : '';
+  box.innerHTML = list.length
+    ? list.map(x => row(x)).join('')
+    : '<p class="empty">此刻四家里一部都没有对外公布开播日期。上一栏的「新定档」有动静时，这里就会跟着出现东西。</p>';
+}
+
+function renderPools(V){
+  const box = document.getElementById('pools');
+  const items = V.items||[];
+  document.getElementById('poolN').textContent = `（共 ${items.length} 部）`;
+  box.innerHTML = Object.keys(PLAT).map(k => {
+    const list = items.filter(x => x.platform === k);
+    const at = (V.platformAt||{})[k];
+    const stale = at && V.at && at !== V.at;
+    return `<div class="card plat" style="--c:var(--${k})">
+      <h2>${PLAT[k]}<span class="n">${list.length} 部</span></h2>
+      ${stale?`<p class="note stale">这批数字来自 ${esc(at)}</p>`:''}
+      <div class="grid" data-body="${k}"></div>
+    </div>`;
+  }).join('');
+  for(const k of Object.keys(PLAT)){
+    const host = box.querySelector(`[data-body="${k}"]`);
+    const list = items.filter(x => x.platform === k);
+    if(!list.length){ host.innerHTML = '<p class="empty">这一家今天一条都没取到。</p>'; continue; }
+    const CUT = 20;
+    const paint = n => host.innerHTML = list.slice(0,n).map(x => row(x)).join('')
+      + (n < list.length ? `<button class="more" type="button" data-k="${k}">展开全部 ${list.length} 部</button>` : '');
+    paint(CUT);
+    const b = host.querySelector('.more');
+    if(b) b.onclick = () => paint(list.length);
+  }
+}
+
+async function boot(){
+  let V;
+  try{ V = await fetch('paibo.json',{cache:'no-store'}).then(r => { if(!r.ok) throw new Error(r.status); return r.json(); }); }
+  catch(e){
+    document.getElementById('stat').textContent = '没读到档案（paibo.json 打不开）';
+    document.getElementById('diffBox').innerHTML = '<p class="empty">档案读不到，页面就没有东西可印。</p>';
+    return;
+  }
+  renderStatus(V); renderDiff(V); renderDated(V); renderPools(V);
+}
+boot();
+</script>
+</body>
+</html>
