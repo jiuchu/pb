@@ -4,10 +4,14 @@
 // 只有优酷那一发要按 mtop 的规矩现签一次（头一发换一枚临时票，签完就丢），其余连签名都没有。
 // 一轮 28 个固定请求（腾讯 4 + 腾讯即将上线筛选页 4 + 优酷 9 + 芒果首页 2 + 芒果新片日历 2 + 爱奇艺 A 路 3 + 爱奇艺 B 路 2 + 爱奇艺预约数 2），
 // 一天两拍 = 56 个固定请求/天。
+// ⚠ 爱奇艺 B 路那一发被风控挡回空壳时只重敲头一页一次（隔 2.5~4 秒）⇒ 挡着的那一拍 29 个、58 个/天；没挡着就还是 28。
 // ⚠ 另有一笔浮动的：三家有逐条补的数 —— 优酷和腾讯的集数在每部片子自己的详情页（一条一个请求），
-//   芒果的预约数和集数在每部片子自己的移动端页（一条两个请求：445 字节的壳 → 真页）。
+//   芒果的预约数、集数、类型在每部片子自己的移动端页（一条两个请求：445 字节的壳 → 真页）。
 //   每家每拍最多补 12 条 ⇒ 浮动上限 12×2 + 12 + 12 = 48 个，一轮最多 28+48=76 个、一天最多 152 个。
 //   池子铺一遍：腾讯 126 条约 11 拍、优酷 144 条约 12 拍、芒果 51 条约 4 拍，之后每拍只碰新进池的那几条。
+//   ⚠ 芒果这一版多排队列一项（类型）：10-26 上传后的头几拍它要把这 51 条重新走一遍门，约 5 拍认完，
+//     认一条少一条（认出的类型存在档案里，下一拍接回来用），认完之后就只剩新进池的那几条排队。
+//     这一拍之前页面上还会看见电影和动漫，不是我漏了 —— 门数没变，只是排在后面的还没敲到。
 //   ⚠ 腾讯那 12 扇门不是从第 1 条开始铺：筛选页独有的那 26 条排在最前（填率 21/26，卡片那一屏只有 8/100），
 //     所以前三拍先把它们扫完、页面上靠后那一条也能早点有集数；整池仍旧 11 拍（门数没变），
 //     只是卡片那一屏从第九拍推到第十一拍。
@@ -32,12 +36,18 @@
 //            pbid=8 给 32 条、pbid=9 给 47 条（两张互有交叉，①那 10 条全在 9 里）；
 //            ⚠ 这一路的 URL 参数里那串设备标识（did/mac/oaid/seqId）随手编的就是同一份数据，不需要真机号
 //            ⚠ 这一路结构上没有预约数，也没有集数（duration 不是集数，实测证伪过）
-//         两个数都在逐条那一扇门里：m.mgtv.com/b/<aid> 两跳到 SSR 的 reserveInfo[0].yyNum（精确预约数），
-//         同一页里还有 "updateInfo":"共24集，更新至0集" ⇒ 一次敲门拿两个数
+//         三个数都在逐条那一扇门里：m.mgtv.com/b/<aid> 两跳到 SSR 的 reserveInfo[0].yyNum（精确预约数），
+//         同一页里还有 "updateInfo":"共24集，更新至0集"，页头 <title> 末段是芒果自己标的类型 ⇒ 一次敲门拿三个数
+//         ⚠ 这一家只收「电视剧」：电影、动漫少儿整条搬出池子（他 10-26 点的），认不准的照旧留着
 //   爱奇艺 A 路 GET pcw-api.iqiyi.com/search/recommend/list?...market_release_date_level=即将上线
 //         → 3 页整池（这一家自己会抖：本机 98、线上 94），只有片名/主演/集数/简介
 //   爱奇艺 B 路 GET mesh.if.iqiyi.com/portal/lw/videolib/data（要 device_id，见 PAIBO_IQY_DID）
 //         → 同一池子里那 40 条，唯一带 showDate 的一路
+//         ⚠ 这一发会整段不回片单：HTTP 200、301 字节、code:0，回话里根本没有 data 这个键
+//           （只有 extData.dataExtRisk.risk_level:2 和一枚 dataExtVerify.token）。
+//           同一个 device_id 换个分钟就给了（10-25 21:18 空壳、21:26 拿到 39/94），本机 IP 和机房 IP 都会撞上；
+//           device_id、referer、UA 三样都逐一换着实测过，回话逐字节一样 ⇒ 都不是它们，是时间窗。
+//           所以拿到空壳就隔几秒重敲头一页一次，还不给就按「这一拍没问到」走，池子保住上一轮那份。
 //   爱奇艺 C 路 GET subscription.iqiyi.com/services/subscribe/countAndState.htm
 //         → 预约人数精确整数，subKeys 一次带 60 个 albumId，一个 device_id 都不要
 //
@@ -110,6 +120,7 @@ async function get(url, opt = {}) {
   const r = await fetch(url, { ...opt, signal: AbortSignal.timeout(MS) });
   return { status: r.status, body: await r.text() };
 }
+const sleep = ms => new Promise(res => setTimeout(res, ms));
 
 /* 拿不到数就返回 {ok:false,msg}，main 里据此保住上一轮的池子。
    绝不因为「这一家今天抖了一下」就把整家印成 0 条 —— 那在 diff 里会长成「今天撤了 36 部」。 */
@@ -614,7 +625,7 @@ async function mgPlaybill(pbid) {
   if (Number(j.code) !== 200 || !feed.length) return { ok: false, msg: `pbid=${pbid} 回 code=${j && j.code} ${j && j.msg}` };
   return { ok: true, items: feed.map(mgFeedItem).filter(Boolean) };
 }
-async function fetchMG(prevItems) {
+async function fetchMG(prevItems, prevOff) {
   const did = mkUuid();
   const H = { 'user-agent': UA, 'referer': 'https://www.mgtv.com/' };
   const idx = await get(`https://dc.bz.mgtv.com/dynamic/v1/channel/index/${did}/9.0.9/10.0/10000000/space/0/4/5?osType=window&seqId=${did}&device=pc&playList=`,
@@ -644,16 +655,60 @@ async function fetchMG(prevItems) {
     return { ok: false, msg: `首页模块里没有 vsubscribe 那一段；日历那两发也没接上（${dead.join('；')}）` };
   }
   // 屏内次序以模块那一路为准，日历只往后面补新片（同一部以屏内那条为准，日历那条按 aid 去重丢掉）。
-  const items = dedupe([...screen, ...feed]);
-  const f = await fillMGDetail(items, prevItems);
-  return { ok: true, items,
-    note: `单子：首页屏内 ${screen.length} 条 + 日历 ${feed.length} 条 → 去重 ${items.length} 条`
+  const raw = dedupe([...screen, ...feed]);
+  /* 他 10-26 点的：芒果这一格只要电视剧。类型是逐条那一扇门认出来的，所以头几拍池子里还会看见电影，
+     认出来才搬出去 —— 搬出去的记进 off 这份备忘，下一拍不再给它开门，也不算「出池」（见 build 那一段）。 */
+  const off = mgPrune(prevOff, raw);
+  const items = raw.filter(x => !off[x.id]);
+  const f = await fillMGDetail(items, prevItems, off);
+  const kinds = Object.values(off);
+  const byKind = {};
+  for (const k of kinds) byKind[k] = (byKind[k] || 0) + 1;
+  const waiting = items.filter(x => x.kind == null).length;
+  return { ok: true, items, off,
+    note: `单子：首页屏内 ${screen.length} 条 + 日历 ${feed.length} 条 → 去重 ${raw.length} 条`
         + (dead.length ? `（日历没接上：${dead.join('；')}）` : '')
-        + `；这一拍敲了 ${f.asked} 扇门、预约数拿到 ${f.got} 条（集数顺带 ${f.eps} 条，芒果自己没写的记 0 不再敲）、沿用上一轮 ${f.carried} 条` };
+        + ` → 芒果标成电视剧以外的 ${Object.keys(off).length} 条不搬进来，池子 ${items.length} 条`
+        + (waiting ? `（其中 ${waiting} 条还没敲到门认类型，下一拍接着认）` : '')
+        + (kinds.length ? `；剔掉的按芒果自己的分类：${Object.entries(byKind).map(([k, n]) => `${k} ${n}`).join('、')}` : '')
+        + `；这一拍敲了 ${f.asked} 扇门、预约数拿到 ${f.got} 条（集数顺带 ${f.eps} 条、类型认出 ${f.typed} 条 + 芒果页上没写类型的 ${f.unmarked} 条，都记「问过了」不再敲）、沿用上一轮 ${f.carried} 条` };
 }
-/* 这一家的预约数和集数在同一个那一页上，所以只有一扇门：敲一次两跳，两个数一起拿。
+/* 这一家的预约数和集数在同一个那一页上，所以只有一扇门：敲一次两跳，三个数一起拿（预约数、集数、类型）。
    十个一开就是 20 个并发请求砸人家 CDN，按 4 个一批走。 */
-export function mgQueue(items, max) { return items.filter(x => x.count == null || x.eps == null).slice(0, max); }
+/* 类型也算一扇门的账：已经在档案里填满预约数和集数的那 21 条，若只按「缺数」排队，
+   它们再也进不了队列，于是永远认不出类型、电影永远留在单子里（10-26 沙箱实跑抓到的）。 */
+export function mgQueue(items, max) { return items.filter(x => x.count == null || x.eps == null || x.kind == null).slice(0, max); }
+/* 认完类型这一步单独可测 —— 它同时管着两件容易写反的事：
+   一是「认不准就别剔」（kind 为 null 是没敲到门，'未标' 是敲到了但页上没这个形状，两者都不是「不是电视剧」），
+   二是剔掉的必须落进 off 那份备忘，不然下一拍它又回到敲门队列里，白占一扇门。
+   留下来的条目把 kind 原样留在身上：池子每拍是从站内重新摊开的，靠 carryKind 把它接回来，
+   不然 12 扇门永远只敲前 12 条，第 13 条到第 51 条一排都认不到。 */
+export function mgSplit(items, off) {
+  let cut = 0;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const x = items[i];
+    if (x.kind && x.kind !== '电视剧' && x.kind !== '未标') { off[x.id] = x.kind; items.splice(i, 1); cut++; }
+  }
+  return cut;
+}
+export function carryKind(items, prevItems) {
+  const prev = new Map((prevItems || []).map(x => [x.id, x]));
+  let kept = 0;
+  for (const x of items) {
+    if (x.kind != null) continue;
+    const p = prev.get(x.id);
+    if (p && p.kind != null) { x.kind = p.kind; kept++; }
+  }
+  return kept;
+}
+/* off 只留「这一拍池子里还在的那些」：一部片子从芒果待播池撤下去，它跟着从备忘里掉出去 ——
+   不然备忘只会越长越大，哪天它又回来还得不上门问一遍。代价是它回来那一拍要重敲一扇门认类型，一扇门而已。 */
+export function mgPrune(off, pool) {
+  const inPool = new Set(pool.map(x => x.id));
+  const out = {};
+  for (const [id, kind] of Object.entries(off || {})) if (inPool.has(id)) out[id] = kind;
+  return out;
+}
 /* 日历那一路整条没有预约数 ⇒ 它是「没问过」，不是「没有」：上一轮的 count 必须原样带过来，
    不然接上这一路的下一拍，页面上那 10 个已有的数就全空了（和优酷集数那一条是同一个道理）。 */
 export function carryCounts(items, prevItems) {
@@ -666,19 +721,21 @@ export function carryCounts(items, prevItems) {
   }
   return kept;
 }
-async function fillMGDetail(items, prevItems) {
-  const carried = carryEps(items, prevItems) + carryCounts(items, prevItems);
+async function fillMGDetail(items, prevItems, off) {
+  const carried = carryEps(items, prevItems) + carryCounts(items, prevItems) + carryKind(items, prevItems);
   const todo = mgQueue(items, MG_DOOR_MAX);
-  let got = 0, eps = 0;
+  let got = 0, eps = 0, typed = 0, unmarked = 0;
   for (let i = 0; i < todo.length; i += 4) {
     const rs = await Promise.all(todo.slice(i, i + 4).map(x => mgDetail(x.id.slice(3))));
     rs.forEach((r, k) => {
       const x = todo[i + k];
       if (r.count != null) { x.count = r.count; got++; }
       if (r.eps != null) { x.eps = r.eps; if (r.eps > 0) eps++; }
+      if (r.kind) { x.kind = r.kind; if (r.kind === '未标') unmarked++; else typed++; }
     });
   }
-  return { carried, asked: todo.length, got, eps };
+  const cut = mgSplit(items, off);
+  return { carried, asked: todo.length, got, eps, typed, unmarked, cut };
 }
 /* 芒果那个 yy/query/type 口逆到底了，结论是不必再逆：bundle 里那一发的参数是
    {uuid, ticket: HDCN.split('-')[0], aids, appVersion, device, platform, external} —— 全程没有签名，
@@ -693,14 +750,36 @@ const MG_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKi
    认不到的那条记 0（＝问过了、芒果没写），《蜘蛛侠：崭新之日》就是这么留成 0 的，不是抓失败。
    ⚠ rbTitle 不是总集数：那是桌面页逐集卡片上的「第1集」「第2集」，一条一集，
       待播那一屏（module 12440 的 vsubscribe）整段都没有它。 */
+/* 芒果这两路（首页模块 + 新片日历）整份回话里**一个类型字段都没有** —— 51 条逐条摊开看过，
+   dataType / jumpKind / status 三条全表同一个值（1 / 1 / 0），拿它们分不出剧和电影。
+   类型在逐条那一扇门的第二跳上：那一页的 <title> 末段就是芒果自己给的那一档。
+   ⚠ 尾巴有两种，只照着电视剧那一种写就把电影整批漏掉（10-26 沙箱实跑撞到的）：
+      电视剧 —— 咸鱼飞升-《咸鱼飞升》预约200万福利！…-电视剧-全集高清视频-芒果TV
+      电影 —— 《蜘蛛侠：崭新之日》口碑特辑 第一视角打造沉浸体验-电影-最新高清视频在线观看-芒果TV
+      动漫 —— 搜神-《搜神》片花：国风奇幻志怪世界-动漫少儿-最新高清视频在线观看-芒果TV
+   这一跳本来就为了预约数和集数在敲，顺手多读一个字段，一个请求都不多花。
+   ⚠ 认的是**芒果自己标的这一档**，不是我看着片名猜的：《风起玲珑骨 第一季》改编自漫画、
+      标签写着「仙侠·玄幻」，芒果自己把它归在「电视剧」，那就收进来 —— 我拿它当动漫剔掉才是造假。
+   ⚠ 也试过拿日历那一发的 pbid 当类型（pbid 10 那 6 条里认得出的 3 条全是电影），没用它：
+      芒果没说 10 就是「电影档」，那是我猜的 —— 要的是它自己写下的那一档。
+   认不出来（标题不是这个形状）返回 null —— 这一档**不许**当「不是电视剧」剔掉；mgDetail 把它记成 '未标'，
+   条目留在单子里，只是不再占门。 */
+export function mgKind(html) {
+  const m = /-(电视剧|电影|动漫少儿|综艺|纪录片|少儿|亲子|教育|漫画|短剧)-(?:全集高清视频|最新高清视频在线观看)-芒果TV/.exec(String(html || ''));
+  return m ? m[1] : null;
+}
 async function mgDetail(aid) {
-  const out = { count: null, eps: null };
+  const out = { count: null, eps: null, kind: null };
   try {
     const hop = await get(`https://m.mgtv.com/b/${aid}`, { headers: { 'user-agent': MG_UA } });
     const m = /url=(https?:\/\/m\.mgtv\.com\/b\/\d+\/\d+\.html)/.exec(hop.body || '');
     if (!m) return out;                     // 连壳都没给跳转 ⇒ 当没敲过，下一拍再试
     const page = await get(m[1], { headers: { 'user-agent': MG_UA } });
     if (!page.body || page.body.length < 2000) return out;   // 真页没拿到，同样当没敲过
+    /* 页拿到了、标题却不是那个形状 ⇒ 记 '未标'（＝问过了、芒果没这么写），和 eps 记 0 是同一个处理：
+       留成 null 它每拍都回来占一扇门，51 条只有 12 扇，后面的永远认不到。
+       '未标' 的条目仍然留在单子里 —— 认不准就不剔。 */
+    out.kind = mgKind(page.body) || '未标';
     const j = /"reserveInfo":\[(\{[^\]}]*\})/.exec(page.body || '');
     if (j) { const o = JSON.parse(j[1]); if (String(o.aid) === String(aid)) out.count = num(o.yyNum); }
     const u = /"updateInfo":"共(\d+)集/.exec(page.body || '');
@@ -805,30 +884,48 @@ async function fillIQCounts(items) {
 /* B 路那一发。拿不到就把 A 路原样交出去 —— 爱奇艺那一格绝不能因为 device_id 失效而整个空掉。
    device_id 只从环境变量进来：不写进正文、不提交、不打日志。
    ⚠ 回话里带一个 dateRoute：它是「这一轮到底问没问过档期」的证据。
-   没问过 ≠ 这些片子没档期 —— 下面 build() 拿这个决定要不要把上一轮的日期留着。 */
+   没问过 ≠ 这些片子没档期 —— 下面 build() 拿这个决定要不要把上一轮的日期留着。
+   ⚠ 10-26 实测把这一路的「为什么没回话」改写了：它回 200、回 301 字节、`code:0`，
+     但整份回话里**没有 data 这个键**，只有 `extData.dataExtRisk.risk_level:2` 加一枚 `dataExtVerify.token`
+     —— 那是它自己那套 H5 运行时才签得出的东西，我们这边造不出来，也不该造。
+     拿他的 device_id、空的、现场编的、去掉 referer、换手机 UA 各敲两遍，五组回的是同一份字节
+     ⇒ 挡人的不是 device_id，也不是参数集（那两样上一版写在这里当嫌疑人，是猜的，今天证伪了）。
+     它是按分钟开的窗口：10-25 21:18 那拍空、21:26 那拍对上 39/94，同一个 device_id。
+     所以这里只在**头一页拿到空壳**时歇几秒再敲一次：门开着时一个请求都不多花，挡着时最多多一发。 */
 async function enrichIQ(items) {
   if (!IQ_DID) return { dateRoute: false, spoken: null, msg: 'B 路跳过（没配 device_id），这一轮爱奇艺没有定档日；预约人数走 C 路那条匿名口，不受影响' };
   const VER = '17.103.26647';
-  let sid = '', got = 0, pages = 0;
-  const byId = new Map();
-  for (let p = 1; p <= 4; p++) {
+  const iqPage = async (p, session) => {
     const q = new URLSearchParams({
       uid: '', passport_id: '', ret_num: '60', pcv: VER, version: VER,
       device_id: IQ_DID, channel_id: '2', page_id: String(p), os: '10.0', vip: '0',
       recent_selected_tag: '即将上线',
       filter: JSON.stringify({ mode: '11', market_release_date_level: '即将上线' }),
-      ...(sid ? { session: sid } : {}),
+      ...(session ? { session } : {}),
     });
     const r = await get('https://mesh.if.iqiyi.com/portal/lw/videolib/data?' + q,
       { headers: { 'user-agent': UA, 'referer': 'https://www.iqiyi.com/list/tv/' } });
-    let j; try { j = JSON.parse(r.body); } catch (e) { continue; }
-    if (!Array.isArray(j.data)) continue;
+    let j; try { j = JSON.parse(r.body); } catch (e) { return null; }
+    return Array.isArray(j.data) ? j : null;      // 空壳（没 data 键）和没回话走同一条路
+  };
+  let sid = '', got = 0, pages = 0, retried = 0;
+  const byId = new Map();
+  for (let p = 1; p <= 4; p++) {
+    let j = await iqPage(p, sid);
+    if (p === 1 && !j) {
+      retried = 1;
+      await sleep(2500 + Math.floor(Math.random() * 1500));
+      j = await iqPage(1, '');                    // 重敲头一页：不带上一轮的 session，当新的一发问
+    }
+    if (!j) continue;
     pages++;
-    sid = j.session || sid;                     // 第二页带上上一页回的那个串；实测给不给都一样，那就给
+    sid = j.session || sid;                       // 第二页带上上一页回的那个串；实测给不给都一样，那就给
     for (const x of j.data) if (x && x.album_id && iqPending(x)) byId.set(String(x.album_id), x);
     if (!j.has_next) break;
   }
-  if (!pages) return { dateRoute: false, spoken: null, msg: 'B 路没回话（device_id 被风控或参数集又变了），这一轮爱奇艺只有 A 路的字段加 C 路的预约人数' };
+  if (!pages) return { dateRoute: false, spoken: null,
+    msg: `B 路没回话（它回了一份不带片单的风控空壳：200、301 字节、没有 data 键${retried ? '，隔几秒重敲一次还是那份' : ''}）`
+      + '，这一轮爱奇艺只有 A 路的字段加 C 路的预约人数' };
   let dated = 0, hot = 0;
   const passed = [];
   const today = bjDay(new Date());
@@ -887,7 +984,7 @@ function dedupe(arr) {
 /* 和上一轮比，出四类事：新定档（原来没日期、现在有）、改档（日期变了）、进池、出池。
    只比「这一轮真的取到了」的那几家：某家取数失败时它的旧条目原样留着，
    不然一次网络抖动就写成「今天撤了 36 部」。 */
-export function diff(prev, items, livePlatforms, known) {
+export function diff(prev, items, livePlatforms, known, skipOut) {
   const now = new Map(items.map(x => [x.id, x]));
   const before = new Map((prev || []).filter(x => now.has(x.id) || livePlatforms.has(x.platform)).map(x => [x.id, x]));
   const scheduled = [], rescheduled = [], newIn = [], out = [];
@@ -903,7 +1000,9 @@ export function diff(prev, items, livePlatforms, known) {
     else if (b.date && x.date && b.date !== x.date)
       rescheduled.push({ ...brief(x), from: b.date, to: x.date });
   }
-  for (const b of before.values()) if (!now.has(b.id)) out.push(brief(b));
+  /* skipOut：我们自己不收的那一类（芒果那一路的电影、动漫）不算「平台把它撤了」。
+     不传就是老行为，一家都不漏 —— 这一条只挡「剔得对但记成撤档」那一种假新闻。 */
+  for (const b of before.values()) if (!now.has(b.id) && !(skipOut && skipOut.has(b.id))) out.push(brief(b));
   const by = a => a.sort((x, y) => (x.platform + x.title).localeCompare(y.platform + y.title, 'zh'));
   return { scheduled: by(scheduled), rescheduled: by(rescheduled), newIn: by(newIn), out: by(out) };
 }
@@ -929,14 +1028,19 @@ export function mergeDay(cur, fresh, at, counts) {
     out: keep(cur.out, fresh.out) };
 }
 
-export async function collectAll(prevItems) {
+export async function collectAll(prevItems, prevOff) {
   const one = async (k, fn) => { try { return [k, await fn()]; } catch (e) { return [k, { ok: false, msg: k + ' 取数异常：' + e.message }]; } };
-  const rs = await Promise.all([one('qq', () => fetchQQ(prevItems)), one('yk', () => fetchYK(prevItems)), one('mg', () => fetchMG(prevItems)), one('iq', fetchIQ)]);
+  const rs = await Promise.all([one('qq', () => fetchQQ(prevItems)), one('yk', () => fetchYK(prevItems)), one('mg', () => fetchMG(prevItems, prevOff)), one('iq', fetchIQ)]);
   return Object.fromEntries(rs);
 }
 
 export function build(prevDoc, results, at) {
   const prevItems = Array.isArray(prevDoc && prevDoc.items) ? prevDoc.items : [];
+  /* 芒果按类型剔掉的那几条不在 items 里 —— 在 diff 眼里就成了「今天从池子里没了」，
+     看的人以为芒果把这些片撤了，其实是我们自己不收电视剧以外的。所以 diff 拿这份备忘当凭据，
+     被它剔掉的不记「出池」。取数失败那一拍沿用上一份，和「一家没取到不许清池」是同一条规矩。 */
+  const mgOff = results.mg && results.mg.ok ? (results.mg.off || {})
+    : Object.assign({}, prevDoc && prevDoc.mgOff);
   const live = new Map(Object.entries(results).filter(([, r]) => r.ok).map(([k, r]) => [k, r.items]));
   const warnings = Object.entries(results).filter(([, r]) => !r.ok).map(([k, r]) => ({ platform: k, msg: r.msg }));
   /* 站内序号 pos：上游那一屏从上到下排第几（1 起，平台内）。
@@ -991,8 +1095,7 @@ export function build(prevDoc, results, at) {
         carried++;
       }
     }
-    if (carried) warnings.push({ platform: 'iq', field: 'date',
-      msg: `爱奇艺这一轮没问到开播日期，${carried} 部的档期沿用上一轮那一份` });
+    if (carried) warnings.push({ platform: 'iq', field: 'date', msg: '爱奇艺本次没有获取排播日期' });
   }
   const kept = prevItems.filter(x => !live.has(x.platform));
   // 取到的覆盖同平台的旧条目，没取到的把旧条目留着（并记一条警告）。
@@ -1027,7 +1130,7 @@ export function build(prevDoc, results, at) {
       const s = (known.get(r.id) || new Set()).add(r.date || r.to);
       known.set(r.id, s);
     }
-    const d = diff(prevItems, sorted, new Set(live.keys()), known);
+    const d = diff(prevItems, sorted, new Set(live.keys()), known, new Set(Object.keys(mgOff)));
     const today = days.find(x => x.day === at.slice(0, 10));
     const rest = days.filter(x => x.day !== at.slice(0, 10));
     const merged = mergeDay(today, d, at, counts);
@@ -1051,6 +1154,7 @@ export function build(prevDoc, results, at) {
     platforms: PLATFORMS,
     warnings,
     days,
+    mgOff,
     items: sorted,
   };
   return doc;
@@ -1060,7 +1164,7 @@ async function main() {
   const at = bjStamp(new Date());
   let prevDoc = null;
   if (fs.existsSync(OUT)) { try { prevDoc = JSON.parse(fs.readFileSync(OUT, 'utf8')); } catch (e) { prevDoc = null; } }
-  const results = await collectAll(prevDoc && prevDoc.items);
+  const results = await collectAll(prevDoc && prevDoc.items, prevDoc && prevDoc.mgOff);
   const doc = build(prevDoc, results, at);
   for (const k of Object.keys(PLATFORMS)) {
     const r = results[k];
