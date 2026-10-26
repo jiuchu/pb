@@ -422,10 +422,18 @@ function renderReadout(V){
     + cell('最新一天 · 新定档', n('scheduled'), '部', n('scheduled') > 0)
     + cell('最新一天 · 新进库', n('newIn'), '部')
     + cell('最新一天 · 撤下', n('out'), '部');
-  /* 某一家这一轮没取到时，库里留的还是上一次的 —— 只报这件事，不评价它算不算出事。 */
-  const ws = (V.warnings||[]).map(x => PLAT[x.platform] || x.platform).join('、');
-  document.getElementById('warns').innerHTML = ws
-    ? `<div class="warns">本轮没取到：${esc(ws)} · 下面那几行留的是上一次取到的那一批</div>` : '';
+  /* 警告分两种，得分开印：整家没取到 ⇒ 那几行留的是上一批；
+     取到了但某一个字段没问到 ⇒ 那句「留的是上一批」就是假话，
+     而该印的是它自己带的那条说明（10-26 早上《谜林》那一档期被擦掉就是这么来的）。 */
+  const warn = V.warnings || [];
+  const whole = warn.filter(x => !x.field).map(x => PLAT[x.platform] || x.platform).join('、');
+  const lines = [];
+  if (whole) lines.push(`本轮没取到：${esc(whole)} · 下面那几行留的是上一次取到的那一批`);
+  warn.filter(x => x.field).forEach(x => {
+    lines.push(esc(x.msg || `${PLAT[x.platform] || x.platform}的${x.field}这一轮没问到`));
+  });
+  document.getElementById('warns').innerHTML = lines.length
+    ? `<div class="warns">${lines.join('<br>')}</div>` : '';
 }
 
 function renderStatus(V){

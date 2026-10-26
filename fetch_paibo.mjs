@@ -318,9 +318,9 @@ async function fetchIQ() {
   const d = dedupe(out);
   if (d.length < 30) return { ok: false, msg: `爱奇艺只回了 ${d.length} 条，比平时（九十多条）少太多，这轮不用` };
   const got = await fillIQCounts(d);
-  const note = `预约人数取到 ${got}/${d.length} 条（一发带 60 个 albumId，不靠 device_id）`
-    + '；' + await enrichIQ(d);
-  return { ok: true, items: d, note };
+  const b = await enrichIQ(d);
+  const note = `预约人数取到 ${got}/${d.length} 条（一发带 60 个 albumId，不靠 device_id）` + '；' + b.msg;
+  return { ok: true, items: d, note, dateRoute: b.dateRoute, spoken: b.spoken };
 }
 
 /* C 路：预约人数。全匿名 —— 不带 cookie、不带 dfp、不带 device_id。
@@ -353,9 +353,11 @@ async function fillIQCounts(items) {
 }
 
 /* B 路那一发。拿不到就把 A 路原样交出去 —— 爱奇艺那一格绝不能因为 device_id 失效而整个空掉。
-   device_id 只从环境变量进来：不写进正文、不提交、不打日志。 */
+   device_id 只从环境变量进来：不写进正文、不提交、不打日志。
+   ⚠ 回话里带一个 dateRoute：它是「这一轮到底问没问过档期」的证据。
+   没问过 ≠ 这些片子没档期 —— 下面 build() 拿这个决定要不要把上一轮的日期留着。 */
 async function enrichIQ(items) {
-  if (!IQ_DID) return 'B 路跳过（没配 device_id），这一轮爱奇艺没有定档日；预约人数走 C 路那条匿名口，不受影响';
+  if (!IQ_DID) return { dateRoute: false, spoken: null, msg: 'B 路跳过（没配 device_id），这一轮爱奇艺没有定档日；预约人数走 C 路那条匿名口，不受影响' };
   const VER = '17.103.26647';
   let sid = '', got = 0, pages = 0;
   const byId = new Map();
@@ -376,11 +378,13 @@ async function enrichIQ(items) {
     for (const x of j.data) if (x && x.album_id && iqPending(x)) byId.set(String(x.album_id), x);
     if (!j.has_next) break;
   }
-  if (!pages) return 'B 路没回话（device_id 被风控或参数集又变了），这一轮爱奇艺只有 A 路的字段加 C 路的预约人数';
+  if (!pages) return { dateRoute: false, spoken: null, msg: 'B 路没回话（device_id 被风控或参数集又变了），这一轮爱奇艺只有 A 路的字段加 C 路的预约人数' };
   let dated = 0, hot = 0;
+  const spoken = new Set();
   for (const x of items) {
     const y = byId.get(x.id.slice(3));
     if (!y) continue;
+    spoken.add(x.id);
     got++;
     const dt = iqDate(y);
     if (dt) { x.date = dt; x.dateText = dt; dated++; }
@@ -391,7 +395,7 @@ async function enrichIQ(items) {
     if (!x.line) x.line = String(y.desc || '').replace(/\s+/g, '').slice(0, 60);
     if (!x.pic) x.pic = httpsPic(y.image_url_1x || y.image_cover);
   }
-  return `B 路对上 ${got}/${items.length} 条，其中带真档期 ${dated}、带预约档位 ${hot}`;
+  return { dateRoute: true, spoken, msg: `B 路对上 ${got}/${items.length} 条，其中带真档期 ${dated}、带预约档位 ${hot}` };
 }
 // 「即将上线」这个标在 taglines 里，不在 album_name（40 条里只有 9 条填了 album_name）。
 const iqPending = x => (x.taglines || []).some(t => String(t.subType) === '2009');
@@ -478,6 +482,43 @@ export function build(prevDoc, results, at) {
      取数失败那一家走的是 kept 那条路，它的旧序号原样留着，不会被这一轮的空结果打乱。
      光存 items 里这一份会被下一拍覆盖，所以事件行也各带一份，见 brief()。 */
   for (const its of live.values()) its.forEach((x, i) => { x.pos = i + 1; });
+  /* 爱奇艺的开播日期是单独那一路（B 路）给的，整池条目却是另一路给的 —— 两路会各活各的。
+     10-26 08:30 那一拍就是撞在这个上面：94 条照常回来、预约数照常带上，只有档期那一路没说话，
+     于是「已排档期」从 2 部掉到 1 部，看的人以为《谜林》撤档了，其实是取数的手抖了一下。
+     规则按「这一轮有没有问到这一条」来分，不按整家分：
+       · 档期那一路整条没回话，或者回话里没点到这一条 ⇒ 上一轮已知的日期原样留着（没问过 ≠ 没有）；
+       · 档期那一路点到了这一条、却没给日期       ⇒ 那才是真没排上档期，照实清空。
+     代价：片方悄悄把已公布的档期撤掉、而那一轮又恰好没回话时，这里会继续挂着旧日期 ——
+     但那种情况本来就没有可信的信号，宁可留着并记一行警告，也不要让它凭空消失。 */
+  const iqR = results.iq;
+  if (iqR && iqR.ok && live.has('iq')) {
+    const spoken = iqR.spoken instanceof Set ? iqR.spoken : null;
+    const prevIQ = new Map(prevItems.filter(x => x.platform === 'iq').map(x => [x.id, x]));
+    /* 上一轮的 items 自己也可能已经被同一只手擦过一遍 —— 10-26 08:30 那一拍就是这个状态。
+       那种时候唯一还留着这个日期的地方是事件行：days[] 里那条「新定档」自带 date。
+       ⚠ 只在整路没回话时才翻它：回话点过名、却没给日期，那是真撤了档，翻出来就是假档期。
+       残余的代价跟着变大一点：一条真撤掉的档期，如果在撤之后遇上一次没回话的拍，会被这行顶回来 ——
+       diff 里没有「档期消失」这一类事件，所以现在还没有能把它认出来的凭据。 */
+    const archive = new Map();
+    if (!spoken) {
+      for (const dy of (Array.isArray(prevDoc && prevDoc.days) ? prevDoc.days : []))
+        for (const k of ['scheduled', 'rescheduled'])
+          for (const r of (dy[k] || [])) if (r && r.date) archive.set(r.id, r);
+    }
+    let carried = 0;
+    for (const x of live.get('iq')) {
+      if (x.date || (spoken && spoken.has(x.id))) continue;
+      const p = prevIQ.get(x.id);
+      const from = p && p.date ? p : archive.get(x.id);
+      if (from && from.date) {
+        x.date = from.date; x.time = from.time || null; x.dateText = from.dateText || from.date;
+        if (!x.line && from.line) x.line = from.line;
+        carried++;
+      }
+    }
+    if (carried) warnings.push({ platform: 'iq', field: 'date',
+      msg: `爱奇艺这一轮没问到开播日期，${carried} 部的档期沿用上一轮那一份` });
+  }
   const kept = prevItems.filter(x => !live.has(x.platform));
   // 取到的覆盖同平台的旧条目，没取到的把旧条目留着（并记一条警告）。
   const items = [...kept, ...[...live.values()].flat()];
@@ -542,7 +583,9 @@ async function main() {
   const last = doc.days[doc.days.length - 1];
   if (last && !doc.baseline) console.log(`${last.day} 累计：新定档 ${last.scheduled.length} / 改档 ${last.rescheduled.length} / 进池 ${last.newIn.length} / 出池 ${last.out.length}`);
   else console.log('第一份档案：没有上一轮可比，diff 留空属正常');
-  if (doc.warnings.length) console.log('⚠ 这一轮有家没取到：' + doc.warnings.map(w => PLATFORMS[w.platform].name).join('、'));
+  const dead = doc.warnings.filter(w => !w.field);
+  if (dead.length) console.log('⚠ 这一轮有家没取到：' + dead.map(w => PLATFORMS[w.platform].name).join('、'));
+  doc.warnings.filter(w => w.field).forEach(w => console.log('⚠ ' + w.msg));
   if (PROBE) { console.log('PROBE：不写文件'); return; }
   /* 每一轮都写：at 这个字段本身就是页面顶部「最后一次采集」那一行的全部内容，
      它不动，看的人就没法区分「今天一条新闻都没有」和「链路断了」。
