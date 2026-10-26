@@ -503,13 +503,17 @@ async function enrichIQ(items) {
   }
   if (!pages) return { dateRoute: false, spoken: null, msg: 'B 路没回话（device_id 被风控或参数集又变了），这一轮爱奇艺只有 A 路的字段加 C 路的预约人数' };
   let dated = 0, hot = 0;
+  const passed = [];
+  const today = bjDay(new Date());
   const spoken = new Set();
   for (const x of items) {
     const y = byId.get(x.id.slice(3));
     if (!y) continue;
     spoken.add(x.id);
     got++;
-    const dt = iqDate(y);
+    const raw = iqDate(y);
+    const dt = iqDate(y, today);
+    if (!dt && raw) passed.push(`${x.title} ${raw}`);   // 上游写着日期，但那一天已经过去了
     if (dt) { x.date = dt; x.dateText = dt; dated++; }
     const ht = iqTag(y, '1010');
     if (ht && !x.hot) { x.hot = ht; hot++; }
@@ -518,20 +522,28 @@ async function enrichIQ(items) {
     if (!x.line) x.line = String(y.desc || '').replace(/\s+/g, '').slice(0, 60);
     if (!x.pic) x.pic = httpsPic(y.image_url_1x || y.image_cover);
   }
-  return { dateRoute: true, spoken, msg: `B 路对上 ${got}/${items.length} 条，其中带真档期 ${dated}、带预约档位 ${hot}` };
+  return { dateRoute: true, spoken,
+    msg: `B 路对上 ${got}/${items.length} 条，其中带真档期 ${dated}、带预约档位 ${hot}`
+      + (passed.length ? `；另有 ${passed.length} 条写的开播日已经过去了（${passed.join('、')}），没当档期收` : '') };
 }
 // 「即将上线」这个标在 taglines 里，不在 album_name（40 条里只有 9 条填了 album_name）。
 const iqPending = x => (x.taglines || []).some(t => String(t.subType) === '2009');
 const iqTag = (x, st) => ((x.taglines || []).find(t => String(t.subType) === st) || {}).text || '';
 /* showDate 的占位是 1 月 1 日 —— 2026-1-1、2025-1-1、2027-1-1 都见过，
    没排上档期的片子填的就是这一格，不能当真档期用（当真就会印出「1 月 1 日开播」这种假定档）。 */
-export function iqDate(x) {
+export function iqDate(x, today) {
   const d = (x || {}).date;
   if (!d || !/^\d{4}$/.test(String(d.year))) return null;
   const m = Number(d.month), day = Number(d.day);
   if (!(m >= 1 && m <= 12 && day >= 1 && day <= 31)) return null;
   if (m === 1 && day === 1) return null;
-  return `${d.year}-${p2(m)}-${p2(day)}`;
+  const s = `${d.year}-${p2(m)}-${p2(day)}`;
+  /* ⚠ 已经过去的日期不算档期。10-26 他抓到的那一条就是这一类：《夺金战》在爱奇艺
+     那份「即将上线」库里挂着 subType 2009 的标（文案还是「下周一上线」），日期却写着 2026-09-26 ——
+     它一个月前就开播了，是那一屏没清干净，不是待播。收进来就是「已排档期」里冒出一个过期的格子。
+     传 today 才挡；不传留给单测看解析本身。 */
+  if (today && s < today) return null;
+  return s;
 }
 
 // ---------- 公共 ----------
@@ -548,14 +560,19 @@ function dedupe(arr) {
 /* 和上一轮比，出四类事：新定档（原来没日期、现在有）、改档（日期变了）、进池、出池。
    只比「这一轮真的取到了」的那几家：某家取数失败时它的旧条目原样留着，
    不然一次网络抖动就写成「今天撤了 36 部」。 */
-export function diff(prev, items, livePlatforms) {
+export function diff(prev, items, livePlatforms, known) {
   const now = new Map(items.map(x => [x.id, x]));
   const before = new Map((prev || []).filter(x => now.has(x.id) || livePlatforms.has(x.platform)).map(x => [x.id, x]));
   const scheduled = [], rescheduled = [], newIn = [], out = [];
   for (const x of items) {
     const b = before.get(x.id);
     if (!b) { newIn.push(brief(x)); continue; }
-    if (!b.date && x.date) scheduled.push({ ...brief(x), date: x.date, time: x.time });
+    /* 「新定档」认的是这个日期我们头一回知道，不是「上一拍的 items 里没有」——
+       known 是全部事件行攒出来的（见 build() 那一段）。改档那一支不查它：日期动了就是新闻。 */
+    if (!b.date && x.date) {
+      if (!(known && (known.get(x.id) || new Set()).has(x.date)))
+        scheduled.push({ ...brief(x), date: x.date, time: x.time });
+    }
     else if (b.date && x.date && b.date !== x.date)
       rescheduled.push({ ...brief(x), from: b.date, to: x.date });
   }
@@ -667,11 +684,29 @@ export function build(prevDoc, results, at) {
   const days = Array.isArray(prevDoc && prevDoc.days) ? prevDoc.days.slice() : [];
   const baseline = !prevItems.length;
   if (!baseline) {
-    const d = diff(prevItems, sorted, new Set(live.keys()));
+    /* 已经记过的档期不再算一次「新定档」。diff 原来只跟上一拍的 items 比 ——
+       10-26 就是栽在这里：B 路断了一拍，那一拍把《谜林》10-27 从 items 里擦掉了（10-25 那格事件行还记着它），
+       接上之后同一件事被当成今天的新事又记了一遍。看的人翻到 10-25、10-26 两格都是它，
+       会以为这一天又定了一次档。所以这里拿全部事件行当凭据：同一个片子的同一个日期，记过就不再记。
+       ⚠ 代价：一部片子撤档之后又定回同一个日期，这一版认不出来 —— 撤档本来就没有事件类型，
+       那条要等给 diff 补「档期消失」那一支一起解决，我没顺手加。 */
+    const known = new Map();
+    for (const dy of days) for (const k of ['scheduled', 'rescheduled']) for (const r of (dy[k] || [])) {
+      const s = (known.get(r.id) || new Set()).add(r.date || r.to);
+      known.set(r.id, s);
+    }
+    const d = diff(prevItems, sorted, new Set(live.keys()), known);
     const today = days.find(x => x.day === at.slice(0, 10));
     const rest = days.filter(x => x.day !== at.slice(0, 10));
+    const merged = mergeDay(today, d, at, counts);
+    /* 今天这一格里，日期已经过去的「定档/改档」不算事 —— 那是挡过期日期那条规矩加上之前
+       写进去的（10-26 中午那一拍手动重跑记下的《夺金战》2026-09-26）。
+       ⚠ 只清今天这一格：前几天那一格是历史，日期走过去是正常的事，不许动。 */
+    const day0 = at.slice(0, 10);
+    for (const k of ['scheduled', 'rescheduled'])
+      merged[k] = (merged[k] || []).filter(r => !((r.date || r.to) && (r.date || r.to) < day0));
     days.length = 0;
-    days.push(...rest, mergeDay(today, d, at, counts));
+    days.push(...rest, merged);
   }
   days.sort((a, b) => a.day.localeCompare(b.day));
   if (days.length > KEEP) days.splice(0, days.length - KEEP);
