@@ -4,15 +4,20 @@
 // 只有优酷那一发要按 mtop 的规矩现签一次（头一发换一枚临时票，签完就丢），其余连签名都没有。
 // 一轮 40 个请求（腾讯 2 + 优酷 9 + 芒果 2 + 芒果逐条取预约数 20 + 爱奇艺 A 路 3 + 爱奇艺 B 路 2 + 爱奇艺预约数 2），
 // 一天两拍 = 80 个请求/天。
+// ⚠ 另有一笔浮动的：优酷的集数在每部片子自己的详情页上，一条一个请求，每拍最多补 12 条，
+//   池子 144 条问完一遍（约 12 拍）之后就落回原处。芒果的集数不另花请求（和预约数同一页），爱奇艺的本来就在 A 路里。
 //
 //   腾讯  POST pbaccess.video.qq.com/.../getPage|getCard   电视剧频道 page_id=100113
 //         → coming_soon 那个 tab 里的 36 条，带精确预约整数 order_person_count
 //   优酷  GET acs.youku.com/h5/mtop.youku.columbus.gateway.new.execute  片单 22916606「即将上线」
 //         → 一页 20 条、八页收完，实测 144 条，带精确预约整数 reserve.count
 //         退路是首页 SSR（www.youku.com/ku/webtv）那一屏，只有 20 条；片单不回了才走它
+//         集数不在这一路里，在每部片子自己的详情页 GET m.youku.com/alipay_video/id_<showid>.html
+//         的 episodeTotal（www 那张同字段、但 38~62 万字节，所以走 m 站那张 6 万的），一条一个请求
 //   芒果  GET dc.bz.mgtv.com/dynamic/v1/channel/index → module/infos
 //         → 首页模块 12440 内嵌的 vsubscribe DSL，10 条，带 onlineTime（Unix 秒）
 //         外加逐条 m.mgtv.com/b/<aid> 两跳到移动端 SSR 的 reserveInfo[0].yyNum（精确预约数）
+//         同一页里还有 "updateInfo":"共24集，更新至0集" ⇒ 集数白拿，不另花请求
 //   爱奇艺 A 路 GET pcw-api.iqiyi.com/search/recommend/list?...market_release_date_level=即将上线
 //         → 3 页整池（这一家自己会抖：本机 98、线上 94），只有片名/主演/集数/简介
 //   爱奇艺 B 路 GET mesh.if.iqiyi.com/portal/lw/videolib/data（要 device_id，见 PAIBO_IQY_DID）
@@ -34,6 +39,15 @@
 //   那个口径是错的：档位文字是 B 路的另一个字段，独立的一个口一直存在，只是没找着。
 //   档位文字仍然留在 hot 里当 C 路断掉时的退路，页面只在拿不到整数时印它。
 //   那四个整数各数各的站内计数，口径仍不通用，所以不跨站比大小，只在站内各排各的。
+//
+// ⚠ 集数四家给得起三家，且各是一个口径（10-26 三家逐条打过）：
+//   爱奇艺在 A 路的 videoCount（98 条里 96 条有数）；芒果在预约数那一页的 updateInfo
+//   「共N集，更新至M集」（10 条里 9 条有数，唯一没有的那条是电影、它写的是「更新至0期」）；
+//   优酷在每部片子自己的详情页 episodeTotal，实测前 12 条里 3 条有数、9 条是优酷自己写的 0
+//   —— 所以它一条一个请求，每拍最多补 12 条，问过没给的记下 0 不再敲第二遍。
+//   腾讯那一家的字段确实存在（详情接口 pc_introduction 卡的 episode_all），但 36 条待播里
+//   只有《风生水起》填了 24，其余全空串；而那一部爱奇艺那一行本来就给了 24 —— 一条一发换不回一个数，不接。
+//   页面上这一列印的是「N 集」，谁没给就空着，不拿别家的数顶，也不拿 0 印成「0 集」。
 //
 // 历史为什么必须自己攒：四个口都只回「当前」这一屏，没有更深的历史接口。
 // 哪天定档、哪天进池、哪天被撤，只有这个文件里留着。所以它是「读旧-追加-写新」，
@@ -88,6 +102,13 @@ async function get(url, opt = {}) {
 // ---------- 腾讯 ----------
 // getPage 漏 page_bypass_params 只回 18 字节的 {"ret":0,"msg":""}，看着像成功、其实是空的。
 // tab_mvl_sub_mod_id 和 flip_infos.change 每次加载都变，必须从 getPage 现读，不能写死。
+/* ⚠ 腾讯的集数不接，是判过的不是没找着。字段确实在：详情页那一发 getPage 回来的
+   pc_introduction 卡里 params.episode_all，匿名、无票、一条一次请求。
+   问题是待播这一池里它基本是空的 —— 36 条逐条打过：只有《风生水起》写了 "24"，其余全是空串
+   （《庆余年第三季》《十日终焉》《梦花廷》这些百度写着 36/40 集的，接口照样给空）。
+   而《风生水起》这一部，爱奇艺那一路本来就给了 24（videoCount），页面上并不缺它。
+   36 个请求、每条 6~11 万字节，换回来的是「一条本来就没有的数」⇒ 不做。
+   顺带：网页那张详情页本身是 Vue 空壳（187 KB 里没有片名、没有「集」），别去刮 HTML。 */
 async function fetchQQ() {
   const base = 'https://pbaccess.video.qq.com/trpc.vector_layout.page_view.PageService/';
   const Q = '?video_appid=3000010&vversion_platform=2';
@@ -299,13 +320,63 @@ async function fetchYKStrip() {
   return { ok: true, items: dedupe(out) };
 }
 
-async function fetchYK() {
+/* 优酷的集数不在片单那一路里：一条卡片的全部叶子字段摊开看过（title / reserve / mark / desc /
+   action / lbTexts …），一个集数都没有。它只在详情页第 2 层那段 JSON 里："episodeTotal":38。
+   www 那张页 38~62 万字节，m 站同一部片子 6 万字节、同一个字段 ⇒ 走 m 站那个。
+   ⚠ 一部一个请求，池子 144 部 ⇒ 全取一遍就是 144 个请求，比现在整轮（40 个）还三倍多。
+      所以每拍只补「还没有数」的前 YK_EPS_MAX 条，按片单次序 —— 片单靠前的正是页面上先看见的。
+      铺满一遍约 12 拍（六天），之后每拍只碰新进来的那几条。
+   ⚠ 优酷自己没公布的写法是 "episodeTotal":0。这种也当「问过了」留下（落盘 eps=0，页面拿不到就不印），
+      不然每拍都在重敲同一批没人接的电话。代价摆在这里：一条现在写 0 的片子，
+      优酷后来改口公布了 36 集，这一版不会再去看第二遍。 */
+const YK_EPS_MAX = 12;
+export function carryYKEps(items, prevItems) {
+  /* 片单那一路整条就没有集数这个字段 ⇒ 它是「没问过」，不是「没有」。
+     所以旧值必须原样带过来，不许被这一轮的空覆盖 —— 和爱奇艺档期那一条是同一个道理。 */
+  const prev = new Map((prevItems || []).filter(x => x.platform === 'yk').map(x => [x.id, x]));
+  let kept = 0;
+  for (const x of items) {
+    if (x.eps == null) { const p = prev.get(x.id); if (p && p.eps != null) { x.eps = p.eps; kept++; } }
+  }
+  return kept;
+}
+export function pickYKEps(items, max) { return items.filter(x => x.eps == null).slice(0, max); }
+async function ykEps(x) {
+  try {
+    const r = await get(`https://m.youku.com/alipay_video/id_${x.id.slice(3)}.html`,
+      { headers: { 'user-agent': MG_UA, referer: 'https://m.youku.com/' } });
+    const m = /"episodeTotal":(\d+)/.exec(r.body || '');
+    return m ? Number(m[1]) : null;
+  } catch (e) { return null; }
+}
+async function fillYKEps(items, prevItems) {
+  const carried = carryYKEps(items, prevItems);
+  const todo = pickYKEps(items, YK_EPS_MAX);
+  let got = 0, blank = 0;
+  for (let i = 0; i < todo.length; i += 4) {
+    const rs = await Promise.all(todo.slice(i, i + 4).map(ykEps));
+    rs.forEach((n, k) => { const x = todo[i + k];
+      if (n == null) return;
+      x.eps = n;
+      if (n > 0) got++; else blank++; });
+  }
+  return { carried, asked: todo.length, got, blank };
+}
+
+async function fetchYK(prevItems) {
   const pool = await fetchYKPool();
-  if (pool.ok) return pool;
-  const strip = await fetchYKStrip();
-  if (!strip.ok) return { ok: false, msg: `片单：${pool.msg}；首页那一屏也没接上：${strip.msg}` };
-  strip.note = `片单那一路没回话（${pool.msg}），这一轮退回首页那一屏那 ${strip.items.length} 条`;
-  return strip;
+  let r;
+  if (pool.ok) r = pool;
+  else {
+    const strip = await fetchYKStrip();
+    if (!strip.ok) return { ok: false, msg: `片单：${pool.msg}；首页那一屏也没接上：${strip.msg}` };
+    strip.note = `片单那一路没回话（${pool.msg}），这一轮退回首页那一屏那 ${strip.items.length} 条`;
+    r = strip;
+  }
+  const s = await fillYKEps(r.items, prevItems);
+  r.note = `${r.note ? r.note + '；' : ''}集数：这一拍问了 ${s.asked} 条、拿到 ${s.got} 条`
+    + `（优酷自己写着 0 的 ${s.blank} 条不再敲第二遍）、沿用上一轮 ${s.carried} 条`;
+  return r;
 }
 
 // tags 第一位是「预告」这种状态标，后面才是类型；实测每条形如 ["预告","悬疑 · 罪案"]。
@@ -350,8 +421,9 @@ async function fetchMG() {
     const rows = (m.data.data || []).filter(x => x && x.title && x.aid);
     if (!rows.length) continue;
     const items = dedupe(rows.map(mgItem));
-    const got = await fillMGCounts(items);
-    return { ok: true, items, note: `预约数取到 ${got}/${items.length} 条（每部两跳，走移动端那个壳）` };
+    const f = await fillMGCounts(items);
+    return { ok: true, items,
+      note: `预约数取到 ${f.got}/${items.length} 条、集数 ${f.eps} 条（同一页两个数，集数不另花请求）` };
   }
   return { ok: false, msg: '首页模块里没找到 vsubscribe（即将上线）那一段' };
 }
@@ -362,26 +434,38 @@ async function fetchMG() {
    跟着它给的地址再一跳，页内嵌 JSON 有 "reserveInfo":[{"aid":…,"yyNum":2748419,"yyNumFormat":"274.8万"}]。
    逐条核过 aid 再取，是不想拿到别人家的数。 */
 const MG_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
-async function mgCount(aid) {
+/* 第二跳那一页同时给两个数：预约数在 reserveInfo、集数在 updateInfo。
+   它长这样："updateInfo":"共24集，更新至0集" —— 「更新至 0 集」正是还没开播，「共 N 集」是总集数。
+   电影那一条写的是「更新至0期」、整串没有「共」，所以只认「共N集」，拿不到就留空
+   （《蜘蛛侠：崭新之日》是这么空掉的，不是抓失败）。
+   ⚠ rbTitle 不是总集数：那是桌面页逐集卡片上的「第1集」「第2集」，一条一集，
+      待播那一屏（module 12440 的 vsubscribe）整段都没有它。 */
+async function mgDetail(aid) {
+  const out = { count: null, eps: null };
   try {
     const hop = await get(`https://m.mgtv.com/b/${aid}`, { headers: { 'user-agent': MG_UA } });
     const m = /url=(https?:\/\/m\.mgtv\.com\/b\/\d+\/\d+\.html)/.exec(hop.body || '');
-    if (!m) return null;
+    if (!m) return out;
     const page = await get(m[1], { headers: { 'user-agent': MG_UA } });
     const j = /"reserveInfo":\[(\{[^\]}]*\})/.exec(page.body || '');
-    if (!j) return null;
-    const o = JSON.parse(j[1]);
-    return String(o.aid) === String(aid) ? num(o.yyNum) : null;
-  } catch (e) { return null; }
+    if (j) { const o = JSON.parse(j[1]); if (String(o.aid) === String(aid)) out.count = num(o.yyNum); }
+    const u = /"updateInfo":"共(\d+)集/.exec(page.body || '');
+    if (u) out.eps = Number(u[1]);
+  } catch (e) { return out; }
+  return out;
 }
 // 十个一开就是 20 个并发请求砸人家 CDN，按 4 个一批走。
 async function fillMGCounts(items) {
-  let got = 0;
+  let got = 0, eps = 0;
   for (let i = 0; i < items.length; i += 4) {
-    const rs = await Promise.all(items.slice(i, i + 4).map(x => mgCount(x.id.slice(3))));
-    rs.forEach((n, k) => { if (n != null) { items[i + k].count = n; got++; } });
+    const rs = await Promise.all(items.slice(i, i + 4).map(x => mgDetail(x.id.slice(3))));
+    rs.forEach((r, k) => {
+      const x = items[i + k];
+      if (r.count != null) { x.count = r.count; got++; }
+      if (r.eps != null) { x.eps = r.eps; eps++; }
+    });
   }
-  return got;
+  return { got, eps };
 }
 function mkUuid() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -602,9 +686,9 @@ export function mergeDay(cur, fresh, at, counts) {
     out: keep(cur.out, fresh.out) };
 }
 
-export async function collectAll() {
+export async function collectAll(prevItems) {
   const one = async (k, fn) => { try { return [k, await fn()]; } catch (e) { return [k, { ok: false, msg: k + ' 取数异常：' + e.message }]; } };
-  const rs = await Promise.all([one('qq', fetchQQ), one('yk', fetchYK), one('mg', fetchMG), one('iq', fetchIQ)]);
+  const rs = await Promise.all([one('qq', fetchQQ), one('yk', () => fetchYK(prevItems)), one('mg', fetchMG), one('iq', fetchIQ)]);
   return Object.fromEntries(rs);
 }
 
@@ -726,9 +810,9 @@ export function build(prevDoc, results, at) {
 
 async function main() {
   const at = bjStamp(new Date());
-  const results = await collectAll();
   let prevDoc = null;
   if (fs.existsSync(OUT)) { try { prevDoc = JSON.parse(fs.readFileSync(OUT, 'utf8')); } catch (e) { prevDoc = null; } }
+  const results = await collectAll(prevDoc && prevDoc.items);
   const doc = build(prevDoc, results, at);
   for (const k of Object.keys(PLATFORMS)) {
     const r = results[k];
@@ -736,7 +820,9 @@ async function main() {
     if (r.ok) {
       const withDate = r.items.filter(x => x.date).length;
       const withCount = r.items.filter(x => x.count != null).length;
+      const withEps = r.items.filter(x => x.eps > 0).length;
       console.log(`   带定档日 ${withDate}/${r.items.length}   带预约数 ${withCount}/${r.items.length}`
+        + `   带集数 ${withEps}/${r.items.length}`
         + (r.note ? '   ' + r.note : ''));
       r.items.slice(0, 3).forEach(x => console.log('   •', [x.title, x.dateText || '—', x.count == null ? '—' : x.count, x.genre || '—'].join(' | ')));
     }
