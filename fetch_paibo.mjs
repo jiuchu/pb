@@ -1,13 +1,15 @@
 // 四站「即将上线」待播池采集 + 每日新定档 diff。
 //
-// 产出 paibo.json，一页看板读它。四个口全是匿名的：没有 cookie、没有签名、没有浏览器，
-// 一轮 32 个请求（腾讯 2 + 优酷 1 + 芒果 2 + 芒果逐条取预约数 20 + 爱奇艺 A 路 3 + 爱奇艺 B 路 2 + 爱奇艺预约数 2），
-// 一天两拍 = 64 个请求/天。
+// 产出 paibo.json，一页看板读它。四个口全是匿名的：不要账号、不要浏览器、不落任何凭据。
+// 只有优酷那一发要按 mtop 的规矩现签一次（头一发换一枚临时票，签完就丢），其余连签名都没有。
+// 一轮 40 个请求（腾讯 2 + 优酷 9 + 芒果 2 + 芒果逐条取预约数 20 + 爱奇艺 A 路 3 + 爱奇艺 B 路 2 + 爱奇艺预约数 2），
+// 一天两拍 = 80 个请求/天。
 //
 //   腾讯  POST pbaccess.video.qq.com/.../getPage|getCard   电视剧频道 page_id=100113
 //         → coming_soon 那个 tab 里的 36 条，带精确预约整数 order_person_count
-//   优酷  GET www.youku.com/ku/webtv                        SSR 里的 __INITIAL_DATA__
-//         → 组件「即将上线」20 条，带精确预约整数 reserve.count
+//   优酷  GET acs.youku.com/h5/mtop.youku.columbus.gateway.new.execute  片单 22916606「即将上线」
+//         → 一页 20 条、八页收完，实测 144 条，带精确预约整数 reserve.count
+//         退路是首页 SSR（www.youku.com/ku/webtv）那一屏，只有 20 条；片单不回了才走它
 //   芒果  GET dc.bz.mgtv.com/dynamic/v1/channel/index → module/infos
 //         → 首页模块 12440 内嵌的 vsubscribe DSL，10 条，带 onlineTime（Unix 秒）
 //         外加逐条 m.mgtv.com/b/<aid> 两跳到移动端 SSR 的 reserveInfo[0].yyNum（精确预约数）
@@ -23,7 +25,8 @@
 //
 // ⚠ 日期给的是腾讯、芒果、爱奇艺三家，但三家都不是「排期表」：腾讯和芒果把定档那一刻写进
 //   字段（待播的绝大多数仍是空串/0），爱奇艺只在片方真排上档期时才填 showDate，没填的统一占位成 1 月 1 日。
-//   优酷那份 110 万字节的 JSON 里 "2026" 出现 0 次，一个日期都没有（实测过）。
+//   优酷那两条路（片单和首页 SSR）一个日期字段都没有：144 条全标 onlineDesc=即将上线，
+//   整份回话里 "2026" 只出现在 manufacturingDate 那一格（实测过）。
 //   10-25 这一轮爱奇艺 40 条待播里只有 1 条填了真档期（《谜林》10-27）—— 这是常态不是故障。
 //
 // ⚠ 预约数四家都给得出精确整数（腾讯 order_person_count / 优酷 reserve.count / 芒果 yyNum /
@@ -45,6 +48,9 @@
 //                  没给就整段跳过 B 路 —— 爱奇艺那一格照常回整池、照常带预约人数，只是没有定档日。
 
 import fs from 'node:fs';
+import crypto from 'node:crypto';
+
+const md5 = s => crypto.createHash('md5').update(s).digest('hex');
 
 const OUT = process.env.PAIBO_OUT || 'paibo.json';
 const KEEP = Number(process.env.PAIBO_KEEP) || 60;
@@ -148,9 +154,116 @@ export function qqDate(s) {
 }
 
 // ---------- 优酷 ----------
-// __INITIAL_DATA__ 那坨里有裸的 undefined（"PUM":undefined），JSON.parse 直接炸；
-// 而且它后面还跟着分号和别的语句，所以要自己按括号配平截一刀。
-async function fetchYK() {
+/* 优酷的「即将上线」有两个口，给的不是同一批片子：
+     · 首页 SSR（__INITIAL_DATA__）里那条横排 —— 只有 20 条；
+     · 鼠标移到那一行上、点「查看全部」弹出来的那一层 —— 是一张片单（scg 22916606），
+       走 mtop.youku.columbus.gateway.new.execute，一页 20 条、八页收完，实测 144 条。
+   两路口径完全一致（144 条的前 20 条和首页那 20 条一字不差、顺序也一样，预约数对得上），
+   片单还多带 desc 和 tags，所以主路走片单，SSR 那条留着当退路。
+   ⚠ 这一家一个日期字段都没有：144 条全标 onlineDesc=即将上线 / reason=敬请期待，
+     整份回话里 "2026" 只出现在 manufacturingDate 那一格。
+   全匿名：只要一枚现签的 _m_h5_tk，不要 cookie、不要账号。 */
+const YK_API = 'mtop.youku.columbus.gateway.new.execute';
+const YK_APPKEY = '24679788';
+const YK_MS = '2019041100';
+const YK_SCG = '22916606';
+const YK_MAXPAGE = 12;   // 实测第 8 页 more:false 收尾，留四页余量；余量只在它变长时才用得上
+
+// mtop h5 的两步握手：头一发故意签错，只为换一枚 _m_h5_tk；第二发才是真请求。
+// 这一枚 token 在一轮里八页共用，所以整条路是 9 发而不是 16 发。
+let ykTk = '', ykCookie = '';
+async function ykCall(pageNo, session) {
+  const data = JSON.stringify({
+    ms_codes: YK_MS,
+    params: JSON.stringify({
+      debug: 0, appPackageKey: 'com.youku.pcweb', appPackageId: 'com.youku.pcweb',
+      ip: '127.0.0.1', reqSubNode: 0, gray: '0', pageNo, bizKey: 'kuflix_node_page',
+      showNodeList: 0, nodeKey: 'PIANDAN_HEATLIST', appKey: YK_APPKEY,
+      ...(session ? { session: JSON.stringify(session) } : {}),
+      bizContext: JSON.stringify({ entityId: Number(YK_SCG), entityType: 'scg' }),
+    }),
+    system_info: JSON.stringify({
+      appPackageKey: 'com.youku.pcweb', appPackageId: 'com.youku.pcweb',
+      device: 'pcweb', os: 'pcweb', ver: '1.0.0.0', userAgent: UA,
+      young: 0, appkey: YK_APPKEY, disableUserRec: '0',
+    }),
+  });
+  let last = null;
+  for (let i = 0; i < 3; i++) {
+    const t = String(Date.now());
+    const sign = md5(`${ykTk}&${t}&${YK_APPKEY}&${data}`);
+    const q = new URLSearchParams({
+      jsv: '2.6.1', appKey: YK_APPKEY, t, sign, api: YK_API, v: '1.0',
+      type: 'originaljson', dataType: 'json', data,
+    });
+    const headers = { 'user-agent': UA, referer: 'https://www.youku.com/', accept: 'application/json' };
+    if (ykCookie) headers.cookie = ykCookie;
+    const r = await fetch(`https://acs.youku.com/h5/${YK_API}/1.0/?${q}`,
+      { headers, signal: AbortSignal.timeout(MS) });
+    const raw = await r.text();
+    try { last = JSON.parse(raw); } catch (e) { last = { ret: ['BAD_JSON'] }; }
+    if ((last.ret || []).some(x => String(x).includes('SUCCESS'))) return last;
+    const sc = r.headers.getSetCookie ? r.headers.getSetCookie() : [];
+    for (const c of sc) {
+      const kv = c.split(';')[0];
+      if (!/_m_h5_tk(_enc)?=/.test(kv)) continue;
+      ykCookie = ykCookie ? `${ykCookie}; ${kv}` : kv;
+      const m = /^_m_h5_tk=([^_;]+)/.exec(kv);
+      if (m) ykTk = m[1].split('_')[0];
+    }
+    if (!ykTk) break;   // 连 token 都没给，再转两圈也是白转
+  }
+  throw new Error('签名或回话不对：' + JSON.stringify((last && last.ret) || '?'));
+}
+
+// 页面上那一层是「组件 → 条目」两棵树，层级会随版本漂，所以递归找、不写死路径。
+const ykGrab = (x, acc = []) => {
+  if (!x || typeof x !== 'object') return acc;
+  if (x.title && x.reserve && x.reserve.count !== undefined && x.reserve.id) acc.push(x);
+  for (const v of Object.values(x)) if (v && typeof v === 'object') ykGrab(v, acc);
+  return acc;
+};
+const ykComps = (x, acc = []) => {
+  if (!x || typeof x !== 'object') return acc;
+  if (x.data && x.data.session && Array.isArray(x.nodes)) acc.push(x);
+  for (const v of Object.values(x)) if (v && typeof v === 'object') ykComps(v, acc);
+  return acc;
+};
+
+async function fetchYKPool() {
+  const out = [];
+  let session = null, pages = 0;
+  try {
+    for (let p = 1; p <= YK_MAXPAGE; p++) {
+      const r = await ykCall(p, session);
+      const root = (r.data || {})[YK_MS];
+      const items = ykGrab(root);
+      if (!items.length) break;
+      pages++;
+      out.push(...items);
+      const comps = ykComps(root.data || root);
+      const more = comps.length ? comps.some(c => c.more) : false;
+      session = comps.length ? comps[0].data.session : null;
+      if (!more || !session) break;
+    }
+  } catch (e) { return { ok: false, msg: e.message }; }
+  const mapped = out.map(x => ({
+    id: 'yk:' + x.reserve.id, platform: 'yk', title: String(x.title),
+    genre: ykGenre(x.tags), cast: '',
+    line: String(x.desc || '').replace(/\s+/g, '').slice(0, 60),
+    count: num(x.reserve.count), hot: '',
+    date: null, time: null, dateText: '', eps: null,
+    pic: httpsPic(x.img || x.hImg),
+    url: 'https://www.youku.com/show/id_' + x.reserve.id + '.html',
+  }));
+  if (mapped.length < 20) return { ok: false, msg: `片单只回了 ${mapped.length} 条，比平时（144 条）少太多，这一轮不用` };
+  return { ok: true, items: dedupe(mapped),
+    note: `片单那一路：${pages} 页 ${mapped.length} 条（「查看全部」点开的那一张，含首页横排那 20 条）` };
+}
+
+// 退路：首页 SSR 那一屏，20 条。__INITIAL_DATA__ 那坨里有裸的 undefined（"PUM":undefined），
+// JSON.parse 直接炸；而且它后面还跟着分号和别的语句，所以要自己按括号配平截一刀。
+async function fetchYKStrip() {
   const r = await get('https://www.youku.com/ku/webtv', { headers: { 'user-agent': UA } });
   const s = r.body || '';
   const at = s.indexOf('__INITIAL_DATA__');
@@ -185,6 +298,16 @@ async function fetchYK() {
   if (!out.length) return { ok: false, msg: '「即将上线」组件是空的' };
   return { ok: true, items: dedupe(out) };
 }
+
+async function fetchYK() {
+  const pool = await fetchYKPool();
+  if (pool.ok) return pool;
+  const strip = await fetchYKStrip();
+  if (!strip.ok) return { ok: false, msg: `片单：${pool.msg}；首页那一屏也没接上：${strip.msg}` };
+  strip.note = `片单那一路没回话（${pool.msg}），这一轮退回首页那一屏那 ${strip.items.length} 条`;
+  return strip;
+}
+
 // tags 第一位是「预告」这种状态标，后面才是类型；实测每条形如 ["预告","悬疑 · 罪案"]。
 export function ykGenre(tags) {
   const arr = (tags || []).map(t => (t && t.text && t.text.title) || (t && t.text) || t).filter(Boolean)
@@ -477,6 +600,9 @@ export function build(prevDoc, results, at) {
      腾讯 coming_soon 那 36 条连打三次顺序逐条一致。
      ⚠ 但「一致」只在分钟级成立 —— 19:34 和 21:56 两相比，腾讯 36 条动了 13 条、爱奇艺 94 条动了 56 条，
      优酷和芒果那两屏一条没动。所以 pos 是「这一拍那一屏」的快照，不是这部片子的固定编号。
+     ⚠ 10-26 起优酷换走片单那一路（144 条），它那一份 pos 是「片单里排第几」，
+     不再是首页那一横排的第几张 —— 那一屏只有 20 张，20 之后的序号在首页上根本不存在。
+     回测「在前的快要定档」时，跨家的 pos 不能直接比大小，只能各家用各自那一路的次序。
      写在这里不写在 fetch 里：四家各有各的返回路径，漏一家就少一家，而这一处保证不漏；
      ⚠ 但必须在下面那个 sort 之前 —— 落盘前按预约数重排之后，原来的屏内次序就已经没了。
      取数失败那一家走的是 kept 那条路，它的旧序号原样留着，不会被这一轮的空结果打乱。
