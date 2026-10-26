@@ -2,22 +2,38 @@
 //
 // 产出 paibo.json，一页看板读它。四个口全是匿名的：不要账号、不要浏览器、不落任何凭据。
 // 只有优酷那一发要按 mtop 的规矩现签一次（头一发换一枚临时票，签完就丢），其余连签名都没有。
-// 一轮 40 个请求（腾讯 2 + 优酷 9 + 芒果 2 + 芒果逐条取预约数 20 + 爱奇艺 A 路 3 + 爱奇艺 B 路 2 + 爱奇艺预约数 2），
-// 一天两拍 = 80 个请求/天。
-// ⚠ 另有一笔浮动的：优酷的集数在每部片子自己的详情页上，一条一个请求，每拍最多补 12 条，
-//   池子 144 条问完一遍（约 12 拍）之后就落回原处。芒果的集数不另花请求（和预约数同一页），爱奇艺的本来就在 A 路里。
+// 一轮 28 个固定请求（腾讯 4 + 腾讯即将上线筛选页 4 + 优酷 9 + 芒果首页 2 + 芒果新片日历 2 + 爱奇艺 A 路 3 + 爱奇艺 B 路 2 + 爱奇艺预约数 2），
+// 一天两拍 = 56 个固定请求/天。
+// ⚠ 另有一笔浮动的：三家有逐条补的数 —— 优酷和腾讯的集数在每部片子自己的详情页（一条一个请求），
+//   芒果的预约数和集数在每部片子自己的移动端页（一条两个请求：445 字节的壳 → 真页）。
+//   每家每拍最多补 12 条 ⇒ 浮动上限 12×2 + 12 + 12 = 48 个，一轮最多 28+48=76 个、一天最多 152 个。
+//   池子铺一遍：腾讯 126 条约 11 拍、优酷 144 条约 12 拍、芒果 51 条约 4 拍，之后每拍只碰新进池的那几条。
+//   ⚠ 腾讯那 12 扇门不是从第 1 条开始铺：筛选页独有的那 26 条排在最前（填率 21/26，卡片那一屏只有 8/100），
+//     所以前三拍先把它们扫完、页面上靠后那一条也能早点有集数；整池仍旧 11 拍（门数没变），
+//     只是卡片那一屏从第九拍推到第十一拍。
+//   爱奇艺的集数和预约数本来就在批量路里，一个逐条请求都不花。
 //
 //   腾讯  POST pbaccess.video.qq.com/.../getPage|getCard   电视剧频道 page_id=100113
-//         → coming_soon 那个 tab 里的 36 条，带精确预约整数 order_person_count
+//         → coming_soon 那个 tab 整池 100 条（一屏 36，要把它自己回的游标喂回去翻到第三屏 28 才算到底），
+//           带精确预约整数 order_person_count
+//         POST pbaccess.video.qq.com/trpc.multi_vector_layout.../getMVLPage  筛选页「即将上线」(iyear=1)
+//         → 124 条（12+40+40+32，游标同样只能拿它自己回的那一格喂回去），
+//           ⚠ 这一路没有预约数、没有集数、没有档期，只有「预约破300万」那种档位文字；
+//           它比卡片那一路多 26 条（短剧、二轮剧），那 26 条里 21 条详情页填了集数
 //   优酷  GET acs.youku.com/h5/mtop.youku.columbus.gateway.new.execute  片单 22916606「即将上线」
 //         → 一页 20 条、八页收完，实测 144 条，带精确预约整数 reserve.count
 //         退路是首页 SSR（www.youku.com/ku/webtv）那一屏，只有 20 条；片单不回了才走它
 //         集数不在这一路里，在每部片子自己的详情页 GET m.youku.com/alipay_video/id_<showid>.html
 //         的 episodeTotal（www 那张同字段、但 38~62 万字节，所以走 m 站那张 6 万的），一条一个请求
-//   芒果  GET dc.bz.mgtv.com/dynamic/v1/channel/index → module/infos
-//         → 首页模块 12440 内嵌的 vsubscribe DSL，10 条，带 onlineTime（Unix 秒）
-//         外加逐条 m.mgtv.com/b/<aid> 两跳到移动端 SSR 的 reserveInfo[0].yyNum（精确预约数）
-//         同一页里还有 "updateInfo":"共24集，更新至0集" ⇒ 集数白拿，不另花请求
+//   芒果  两条路并一张单子：
+//         ① GET dc.bz.mgtv.com/dynamic/v1/channel/index → module/infos：首页模块 12440 内嵌的 vsubscribe DSL，
+//            10 条，带 onlineTime（Unix 秒）—— 屏内次序以这一路为准
+//         ② GET playbill.api.mgtv.com/yy/feed?yyId=8|9（新片日历）：一发一整张、不翻页，
+//            pbid=8 给 32 条、pbid=9 给 47 条（两张互有交叉，①那 10 条全在 9 里）；
+//            ⚠ 这一路的 URL 参数里那串设备标识（did/mac/oaid/seqId）随手编的就是同一份数据，不需要真机号
+//            ⚠ 这一路结构上没有预约数，也没有集数（duration 不是集数，实测证伪过）
+//         两个数都在逐条那一扇门里：m.mgtv.com/b/<aid> 两跳到 SSR 的 reserveInfo[0].yyNum（精确预约数），
+//         同一页里还有 "updateInfo":"共24集，更新至0集" ⇒ 一次敲门拿两个数
 //   爱奇艺 A 路 GET pcw-api.iqiyi.com/search/recommend/list?...market_release_date_level=即将上线
 //         → 3 页整池（这一家自己会抖：本机 98、线上 94），只有片名/主演/集数/简介
 //   爱奇艺 B 路 GET mesh.if.iqiyi.com/portal/lw/videolib/data（要 device_id，见 PAIBO_IQY_DID）
@@ -40,13 +56,12 @@
 //   档位文字仍然留在 hot 里当 C 路断掉时的退路，页面只在拿不到整数时印它。
 //   那四个整数各数各的站内计数，口径仍不通用，所以不跨站比大小，只在站内各排各的。
 //
-// ⚠ 集数四家给得起三家，且各是一个口径（10-26 三家逐条打过）：
-//   爱奇艺在 A 路的 videoCount（98 条里 96 条有数）；芒果在预约数那一页的 updateInfo
-//   「共N集，更新至M集」（10 条里 9 条有数，唯一没有的那条是电影、它写的是「更新至0期」）；
-//   优酷在每部片子自己的详情页 episodeTotal，实测前 12 条里 3 条有数、9 条是优酷自己写的 0
-//   —— 所以它一条一个请求，每拍最多补 12 条，问过没给的记下 0 不再敲第二遍。
-//   腾讯那一家的字段确实存在（详情接口 pc_introduction 卡的 episode_all），但 36 条待播里
-//   只有《风生水起》填了 24，其余全空串；而那一部爱奇艺那一行本来就给了 24 —— 一条一发换不回一个数，不接。
+// ⚠ 集数四家都给得出，但填了多少差得很远（10-26 把两家的整池逐条打过）：
+//   爱奇艺在 A 路的 videoCount（98 条里 96 条有数，白拿）；芒果在预约数那一页的 updateInfo
+//   「共N集，更新至M集」（原有 10 条里 9 条有数，唯一没有的那条是电影、它写的是「更新至0期」）；
+//   优酷在每部片子自己的详情页 episodeTotal、腾讯在每部片子自己的详情页 episode_all。
+//   后三家一条一次敲门（芒果那一门两个请求），实测填充率优酷约三成、腾讯 8/100 ——
+//   所以各按每拍 12 扇门铺，问过没给的记下 0 不再敲第二遍（刚定档的那一条会重新敲，那是平台改口集数的时候）。
 //   页面上这一列印的是「N 集」，谁没给就空着，不拿别家的数顶，也不拿 0 印成「0 集」。
 //
 // 历史为什么必须自己攒：四个口都只回「当前」这一屏，没有更深的历史接口。
@@ -102,27 +117,123 @@ async function get(url, opt = {}) {
 // ---------- 腾讯 ----------
 // getPage 漏 page_bypass_params 只回 18 字节的 {"ret":0,"msg":""}，看着像成功、其实是空的。
 // tab_mvl_sub_mod_id 和 flip_infos.change 每次加载都变，必须从 getPage 现读，不能写死。
-/* ⚠ 腾讯的集数不接，是判过的不是没找着。字段确实在：详情页那一发 getPage 回来的
-   pc_introduction 卡里 params.episode_all，匿名、无票、一条一次请求。
-   问题是待播这一池里它基本是空的 —— 36 条逐条打过：只有《风生水起》写了 "24"，其余全是空串
-   （《庆余年第三季》《十日终焉》《梦花廷》这些百度写着 36/40 集的，接口照样给空）。
-   而《风生水起》这一部，爱奇艺那一路本来就给了 24（videoCount），页面上并不缺它。
-   36 个请求、每条 6~11 万字节，换回来的是「一条本来就没有的数」⇒ 不做。
-   顺带：网页那张详情页本身是 Vue 空壳（187 KB 里没有片名、没有「集」），别去刮 HTML。 */
-async function fetchQQ() {
-  const base = 'https://pbaccess.video.qq.com/trpc.vector_layout.page_view.PageService/';
-  const Q = '?video_appid=3000010&vversion_platform=2';
-  const H = { 'content-type': 'application/json', 'user-agent': UA,
-    'referer': 'https://v.qq.com/channel/tv', 'origin': 'https://v.qq.com' };
-  const PP = { page_type: 'channel', page_id: '100113', scene: 'channel', new_mark_label_enabled: '1' };
-  const post = async (path, body) => {
-    const r = await get(base + path + Q, { method: 'POST', headers: H, body: JSON.stringify(body) });
-    try { return JSON.parse(r.body); } catch (e) { return null; }
+/* ⚠ 第十五遍曾在这一行判「腾讯的集数不接」，那一版错了两处，都留着当反面教材：
+   一是把只读了第一屏的 36 条当成整池。翻页不是改 page_index（给它 2、3 都还是那 36 条），
+     是把 getCard 自己回的那一格 flip_infos.change 原样喂回去 —— 整池 100 条 = 36 + 36 + 28，
+     翻到第 100 条它会绕回第一屏，所以「本页比第一屏少」或「一个新人没有」就是到底了。
+   二是拿第一屏那 36 条算填充率。100 条逐条打过详情页：8 条填了集数
+     （风生水起 24／凤舞九天 40／魂判九川 24／大路朝东 44／坠入夜色的他 24／花间酒人间月 24／变局 30／向明月许愿 16），
+     前 36 条里只有 1 条 —— 另外 7 条全在池子后半截，第一屏根本望不见。
+   字段一直是那一个：详情页 getPage(scene=desk_detail) 回来的 pc_introduction 卡 params.episode_all，匿名、无票、一条一请求。
+   8/100 换 100 个请求值不值？按「每拍敲 12 扇门、问过就记下」铺：一遍 11 拍（池子已经并上筛选页那 126 条），
+   铺完之后每拍只碰新进池的那几条 ⇒ 一次性代价，所以接。
+   ⚠ 同一个问题 10-26 又在筛选页那一路上量了一遍：卡片池没给的 26 条里 21 条填了集数 ——
+     填的全是短剧和二轮剧（北境往事 24／济公4 24／绝顶 42／繁华落尽第二季 24…），
+     它们根本不在 coming_soon 那一屏里，所以那一屏望不见不代表没有。
+   两条还成立的实测：网页那张详情页 HTML 本身是 Vue 空壳（187 KB 里没有片名、没有「集」），别去刮；
+   腾讯把「还没填」写成空串（不是 0），空串同样当「问过了」记下。 */
+const QQ_API = 'https://pbaccess.video.qq.com/trpc.vector_layout.page_view.PageService/';
+const QQ_Q = '?video_appid=3000010&vversion_platform=2';
+const QQ_H = { 'content-type': 'application/json', 'user-agent': UA,
+  'referer': 'https://v.qq.com/channel/tv', 'origin': 'https://v.qq.com' };
+const qqRid = () => [...Array(16)].map(() => (Math.random() * 16 | 0).toString(16)).join('');
+async function qqPost(path, body) {
+  const r = await get(QQ_API + path + QQ_Q, { method: 'POST', headers: QQ_H, body: JSON.stringify(body) });
+  try { return JSON.parse(r.body); } catch (e) { return null; }
+}
+/* ---------- 腾讯第二条路：App 端「电视剧 → 筛选 → 即将上线」那张列表 ----------
+   上面那一一路（coming_soon 卡片）给的是数，这一路给的是全。10-26 实测，全程不带 cookie：
+   · filter_params 里 iyear=1 就是筛选页上那个「即将上线」，sort=75 是「最热」。
+     它这个「最热」不是按预约数排的（124 条对着卡片池里的预约整数数，52 处逆序），所以次序不能当数用。
+   · 一屏默认 12 条；page_context 里那把 *_poster_size 写 40 就真给 40 条 ⇒ 四屏收完 124 条
+     （12+40+40+32，第四屏 has_next_page=false）。和卡片那一路一样是 4 发。
+   · 那把钥匙的名字（_ds_cli_<16 个十六进制>_）我们自己编不出来：给它一个全零的假名，
+     它当没看见、按默认 12 条回；它回的那一格 page_context 里带着真名 ⇒ 只能拿它自己回的喂回去。
+     这一条和卡片那一路的 flip 游标是同一个规矩，别改成写死。
+   · ⚠ 这一路一条集数都不给：45 个字段里没有，publish_date 124 条全空；也没有 order_person_count。
+     它给的是「预约破300万」那种档位文字（third_title_type=10 那一格），所以 count 留 null、页面印档位。
+   · 和卡片池对着数：卡片 100 条里 98 条这里也有，这里另多出 26 条（短剧、二轮剧都在这 26 条里，
+     含《北境往事》《济公4》《绝顶》）。那 26 条逐条敲详情页：21 条填了集数 ——
+     卡片那 100 条只有 8 条填。集数还是得靠逐条那一扇门，但这一路把「该敲谁」的名单扩到 124。
+   ⚠ 头不能少：去掉 origin/referer 它回 ret=20607、一条不给（是被拒，不是空池子）。
+      桌面 UA、不带 vb-request-tag 那些 App 私有头照样给数据。 */
+const QQ_LIST = 'https://pbaccess.video.qq.com/trpc.multi_vector_layout.mvl_controller.MVLPageHTTPService/getMVLPage'
+  + '?&vversion_platform=2';
+const QQ_LIST_PP = { channel_id: '100113',
+  filter_params: 'sort=75&itype=-1&ipay=-1&iarea=-1&iyear=1&theater=-1&award=-1&recommend=-1',
+  page_type: 'operation', page_id: 'channel_list' };
+const QQ_LIST_SIZE = '40';
+const QQ_LIST_PAGE_MAX = 6;                       // 实测 4 屏到底，留两屏余量
+async function qqListPost(body) {
+  const r = await get(QQ_LIST, { method: 'POST', headers: QQ_H, body: JSON.stringify(body) });
+  try { return JSON.parse(r.body); } catch (e) { return null; }
+}
+// 档位文字有两个落点，优先那一个明确标了 type=10 的；chnlist_search_label 里 category 10 是同一条。
+export function qqTier(p) {
+  if (String(p.third_title_type) === '10' && p.third_title) return String(p.third_title);
+  try {
+    for (const l of JSON.parse(p.chnlist_search_label || '[]')) if (l.category === 10 && l.label) return String(l.label);
+  } catch (e) { /* 那一格偶尔不是合法 JSON */ }
+  return '';
+}
+// 这一路的 sub_title 是主演（空格分隔），second_title 才是那句宣传语 —— 和卡片那一路正好反着。
+// ⚠ 124 条实测 type/item_type 全是 '2'（剧集），因为这张列表就是电视剧频道的；同一个字段名在
+//   nav_card 那八张卡上是「频道 id」。所以别顺手把 filter_params 改成别的频道 —— 改了就混进电影，
+//   而这一路没有类目字段可以拦（真到那一步要按 type 拦，并在注记里报拦掉几条）。
+export function qqListItem(p) {
+  if (!p || !p.title || !p.cid) return null;
+  return {
+    id: 'qq:' + p.cid, platform: 'qq', title: String(p.title),
+    genre: String(p.main_genre || ''),
+    cast: String(p.sub_title || '').replace(/[[\]]/g, ' ').trim().split(/\s+/).filter(Boolean).join('、'),
+    line: String(p.second_title || ''), count: null, hot: qqTier(p),
+    date: null, time: null, dateText: '', eps: null,
+    pic: httpsPic(p.new_pic_vt || p.new_pic_hz),
+    url: 'https://v.qq.com/detail/' + String(p.cid).charAt(0) + '/' + p.cid + '.html',
   };
-  const page = await post('getPage', { page_params: PP,
+}
+export function qqListCards(j) {
+  return (((((((j || {}).data || {}).modules || {}).normal || {}).cards || [])[0] || {}).children_list || {}).poster_card || {};
+}
+/* 两条路并一张单子：卡片那一路排在前面 —— pos 认的是 coming_soon 那一屏的次序，
+   而且只有那一路带精确预约数和档期。筛选页独有的那些条追在后面。
+   传进来的数组不许被改写（外面还指着它算卡片条数）。 */
+export function mergeQq(cardItems, listItems) {
+  const out = cardItems.slice();
+  const has = new Set(out.map(x => x.id));
+  const only = new Set();
+  let added = 0;
+  for (const x of listItems) if (!has.has(x.id)) { out.push(x); has.add(x.id); only.add(x.id); added++; }
+  /* only 交给集数那一队当「先敲这些」的名单 —— 这一路独有的条填率 21/26，卡片那一屏只有 8/100。 */
+  return { items: out, added, only };
+}
+async function qqList() {
+  const out = [];
+  let ctx = {}, dead = 0;
+  for (let pg = 0; pg < QQ_LIST_PAGE_MAX; pg++) {
+    const j = await qqListPost({ page_params: QQ_LIST_PP, page_context: ctx });
+    const d = (j || {}).data;
+    /* 抖一发不算这一路挂：连着两发没回话才收摊（保住已经收到的那几十条）。 */
+    if (!d || j.ret !== 0) { dead++; if (dead >= 2) break; continue; }
+    dead = 0;
+    const arr = qqListCards(j).cards || [];
+    const has = new Set(out.map(x => x.id));
+    for (const x of arr) {
+      const it = qqListItem(x.params);
+      if (it && !has.has(it.id)) { out.push(it); has.add(it.id); }
+    }
+    if (!d.has_next_page || !arr.length) break;
+    ctx = d.page_context || {};
+    for (const k of Object.keys(ctx)) if (/_poster_size$/.test(k)) ctx[k] = QQ_LIST_SIZE;
+  }
+  return out;
+}
+async function fetchQQ(prevItems) {
+  const PP = { page_type: 'channel', page_id: '100113', scene: 'channel', new_mark_label_enabled: '1' };
+  const page = await qqPost('getPage', { page_params: PP,
     page_bypass_params: { params: { platform_id: '2', caller_id: '3000010', data_mode: 'default',
       user_mode: 'default', specified_strategy: '', ...PP },
-      scene: 'channel', app_version: '', abtest_bypass_id: '9b38f2a62d9f0804' } });
+      scene: 'channel', app_version: '', abtest_bypass_id: qqRid() } });
   const mods = ((page || {}).data || {}).CardList;
   if (!Array.isArray(mods)) return { ok: false, msg: 'getPage 没回模块（多半是漏了 page_bypass_params 或被掐）' };
   const out = [];
@@ -133,32 +244,53 @@ async function fetchQQ() {
     for (const t of tl) {
       if (t.tab_type !== 'coming_soon') continue;
       tabs++;
-      if (tabs > 3) continue;                       // 上游哪天多开一个 tab 也不至于打满 20 个请求
-      const res = await post('getCard', {
-        page_params: { tab_mvl_sub_mod_id: t.tab_mvl_sub_mod_id, tab_name: t.tab_name, tab_type: t.tab_type,
-          page_id: 'scms_shake', page_type: 'scms_shake', source_key: '', tag_id: '', tag_type: '',
-          new_mark_label_enabled: '1' },
-        page_context: { page_index: '1' },
-        flip_info: (c.flip_infos || {}).change });
-        const cards = ((((res || {}).data || {}).card || {}).children_list || {}).list || {};
-      for (const x of cards.cards || []) {
-        const p = x.params || {};
-        if (!p.title || !p.cid) continue;
-        const d = qqDate(p.online_time);
-        out.push({
-          id: 'qq:' + p.cid, platform: 'qq', title: String(p.title),
-          genre: qqGenre(p.topic_label), cast: qqCast(p.topic_label),
-          line: String(p.sub_title || ''), count: num(p.order_person_count), hot: '',
-          date: d.date, time: d.time, dateText: d.text, eps: null,
-          pic: httpsPic(p.priority_image_url || p.image_url),
-          url: 'https://v.qq.com/detail/' + String(p.cid).charAt(0) + '/' + p.cid + '.html',
-        });
+      if (tabs > 2) continue;                       // 上游哪天多开一个 tab 也不至于打满请求
+      /* 一个 tab 最多翻 4 屏（实测 3 屏到底）。第二屏往后用的是上一屏自己回的那一格游标。 */
+      let flip = (c.flip_infos || {}).change, size = 0;
+      const seen = new Set();
+      for (let pg = 0; pg < 4 && flip; pg++) {
+        const res = await qqPost('getCard', {
+          page_params: { tab_mvl_sub_mod_id: t.tab_mvl_sub_mod_id, tab_name: t.tab_name, tab_type: t.tab_type,
+            page_id: 'scms_shake', page_type: 'scms_shake', source_key: '', tag_id: '', tag_type: '',
+            new_mark_label_enabled: '1' },
+          page_context: { page_index: '1' },
+          flip_info: flip });
+        const card = ((res || {}).data || {}).card || {};
+        const arr = (((card.children_list || {}).list || {}).cards) || [];
+        if (!size) size = arr.length;
+        const before = seen.size;
+        for (const x of arr) {
+          const p = x.params || {};
+          if (!p.title || !p.cid || seen.has(p.cid)) continue;
+          seen.add(p.cid);
+          const d = qqDate(p.online_time);
+          out.push({
+            id: 'qq:' + p.cid, platform: 'qq', title: String(p.title),
+            genre: qqGenre(p.topic_label), cast: qqCast(p.topic_label),
+            line: String(p.sub_title || ''), count: num(p.order_person_count), hot: '',
+            date: d.date, time: d.time, dateText: d.text, eps: null,
+            pic: httpsPic(p.priority_image_url || p.image_url),
+            url: 'https://v.qq.com/detail/' + String(p.cid).charAt(0) + '/' + p.cid + '.html',
+          });
+        }
+        if (!arr.length || arr.length < size || seen.size === before) break;
+        flip = (card.flip_infos || {}).change;
       }
     }
   }
   if (!tabs) return { ok: false, msg: '电视剧频道里没有 coming_soon 这个 tab（上游改了模块结构）' };
   if (!out.length) return { ok: false, msg: 'coming_soon tab 找到了但一条都没解析出来' };
-  return { ok: true, items: dedupe(out) };
+  /* 卡片那一路排在前（它带精确预约整数和档期），筛选页独有的那些条追在后面。 */
+  const cardCount = out.length;
+  const listItems = await qqList();
+  const m = mergeQq(out, listItems);
+  const items = dedupe(m.items);
+  const s = await fillEps(items, prevItems, qqEps, m.only);
+  return { ok: true, items,
+    note: `单子：待播卡片 ${cardCount} 条 + 即将上线筛选页 ${listItems.length} 条 → 新增 ${m.added} 条；`
+      + `集数：这一拍敲了 ${s.asked} 扇门、其中 ${s.ahead} 扇先给筛选页那一路（它独有的那些条腾讯填得最勤）、`
+      + `腾讯填了 ${s.got} 部`
+      + `（它自己留空的 ${s.blank} 部不再敲第二遍）、沿用上一轮 ${s.carried} 条` };
 }
 // topic_label 形如「爱情|陈飞宇|张子枫」：第一段是类型，后面是主演。上游不给分开的字段。
 const qqSplit = s => String(s || '').split('|').map(x => x.trim()).filter(Boolean);
@@ -320,27 +452,44 @@ async function fetchYKStrip() {
   return { ok: true, items: dedupe(out) };
 }
 
-/* 优酷的集数不在片单那一路里：一条卡片的全部叶子字段摊开看过（title / reserve / mark / desc /
-   action / lbTexts …），一个集数都没有。它只在详情页第 2 层那段 JSON 里："episodeTotal":38。
-   www 那张页 38~62 万字节，m 站同一部片子 6 万字节、同一个字段 ⇒ 走 m 站那个。
-   ⚠ 一部一个请求，池子 144 部 ⇒ 全取一遍就是 144 个请求，比现在整轮（40 个）还三倍多。
-      所以每拍只补「还没有数」的前 YK_EPS_MAX 条，按片单次序 —— 片单靠前的正是页面上先看见的。
-      铺满一遍约 12 拍（六天），之后每拍只碰新进来的那几条。
-   ⚠ 优酷自己没公布的写法是 "episodeTotal":0。这种也当「问过了」留下（落盘 eps=0，页面拿不到就不印），
-      不然每拍都在重敲同一批没人接的电话。代价摆在这里：一条现在写 0 的片子，
-      优酷后来改口公布了 36 集，这一版不会再去看第二遍。 */
-const YK_EPS_MAX = 12;
-export function carryYKEps(items, prevItems) {
-  /* 片单那一路整条就没有集数这个字段 ⇒ 它是「没问过」，不是「没有」。
+/* 优酷和腾讯这两家的集数不在待播那一路里，各在每部片子自己的详情页上，一家一个字段：
+   优酷 "episodeTotal"（www 那张页 38~62 万字节，m 站同一部片子 6 万字节、同一个字段 ⇒ 走 m 站）；
+   腾讯 详情页 getPage 的 pc_introduction 卡 params.episode_all（一条 6~11 万字节）。
+   ⚠ 一部一个请求 ⇒ 池子 126/144 部全取一遍就是 126/144 个请求，比固定那 28 个还多。
+      所以每家每拍各只补「还没有数」的前 EPS_MAX 条，按站内次序 —— 靠前的正是页面上先看见的。
+      铺满一遍：腾讯约 11 拍、优酷约 12 拍，之后每拍只碰新进池的那几条。
+   ⚠ 腾讯这一家把「筛选页独有的那几条」提到队列最前（它独有的 26 条填了 21 条，卡片那一屏 100 条只填 8 条）：
+      按站内次序排要第九拍才轮到它们，等于那 21 个数字白等多六天。⇒ 前三拍基本全砸在筛选页那一路，
+      页面上那 26 条（pos 101 往后）会先有集数、卡片那一屏反倒后有。整池那 126 条仍旧 11 拍铺完（门数没变，只是先后调了个过），
+      代价是卡片那一屏自己从第九拍推到第十一拍 —— 那一屏填率本来就低，多等的两拍里压着的数没几个。
+   ⚠ 「这一家自己没填」两家写法不同：优酷是 "episodeTotal":0，腾讯是空串。两个都归成 eps=0
+      留下（页面拿不到就不印），不然每拍都在重敲同一批没人接的电话。
+   ⚠ 代价摆在这里：一条现在写 0 的片子，平台后来改口公布了集数，光靠「问过一次」是看不见的。
+      改口基本发生在定档那一刻 ⇒ 上一拍还没档期、这一拍有了，就把那个 0 放回「没问过」重新排队。
+      没定档的那些不重敲，那是 100 个请求换 8 个数的那笔账。 */
+const EPS_MAX = 12;
+export function carryEps(items, prevItems) {
+  /* 待播那一路整条就没有集数这个字段 ⇒ 它是「没问过」，不是「没有」。
      所以旧值必须原样带过来，不许被这一轮的空覆盖 —— 和爱奇艺档期那一条是同一个道理。 */
-  const prev = new Map((prevItems || []).filter(x => x.platform === 'yk').map(x => [x.id, x]));
+  const prev = new Map((prevItems || []).map(x => [x.id, x]));
   let kept = 0;
   for (const x of items) {
-    if (x.eps == null) { const p = prev.get(x.id); if (p && p.eps != null) { x.eps = p.eps; kept++; } }
+    const p = prev.get(x.id);
+    if (!p) continue;
+    if (x.eps == null) { if (p.eps != null) { x.eps = p.eps; kept++; } }
+    else if (x.eps === 0 && p.eps === 0 && x.date && !p.date) x.eps = null;
   }
   return kept;
 }
-export function pickYKEps(items, max) { return items.filter(x => x.eps == null).slice(0, max); }
+/* first 是「这一拍先敲哪几条」的名单：不在名单里的仍按站内次序排在后面。
+   腾讯传的只有筛选页那一路独有的条 —— 它自己那 26 条填了 21 个，卡片那一屏 100 条只填 8 个，
+   每拍 12 扇门按站内次序敲要第九拍才轮到它们，那 21 个数字白白多等六天。 */
+export function pickEps(items, max, first) {
+  const todo = items.filter(x => x.eps == null);
+  if (!first || !first.size) return todo.slice(0, max);
+  const head = todo.filter(x => first.has(x.id));
+  return head.concat(todo.filter(x => !first.has(x.id))).slice(0, max);
+}
 async function ykEps(x) {
   try {
     const r = await get(`https://m.youku.com/alipay_video/id_${x.id.slice(3)}.html`,
@@ -349,18 +498,35 @@ async function ykEps(x) {
     return m ? Number(m[1]) : null;
   } catch (e) { return null; }
 }
-async function fillYKEps(items, prevItems) {
-  const carried = carryYKEps(items, prevItems);
-  const todo = pickYKEps(items, YK_EPS_MAX);
+async function qqEps(x) {
+  const j = await qqPost('getPage', {
+    page_params: { ad_wechat_authorization_status: '0', req_from: 'web_vsite', ad_exp_ids: '', pc_sdk_version: '',
+      pc_oaid: '', new_mark_label_enabled: '1', pc_device_info: '', support_pc_yyb_mobile_app_engine: '0',
+      pc_wegame_version: '', cid: x.id.slice(3), history_vid: '', vid: '', is_pc_new_detail_page: '0',
+      is_from_web_flyflow: '1', lid: '' },
+    page_bypass_params: { params: { caller_id: '3000010', platform_id: '2' },
+      scene: 'desk_detail', app_version: '', abtest_bypass_id: qqRid() },
+    page_context: {} });
+  for (const m of ((((j || {}).data || {}).CardList) || [])) for (const g of Object.values(m.children_list || {}))
+    for (const c of (g.cards || [])) if (c.type === 'pc_introduction') {
+      const v = String((c.params || {}).episode_all || '').trim();
+      return v === '' ? 0 : (Number(v) || 0);        // 空串 = 腾讯自己没填，也算问过了
+    }
+  return null;                                       // 连简介卡都没有 ⇒ 当没敲过，下一拍再试
+}
+async function fillEps(items, prevItems, epsOf, first) {
+  const carried = carryEps(items, prevItems);
+  const todo = pickEps(items, EPS_MAX, first);
   let got = 0, blank = 0;
   for (let i = 0; i < todo.length; i += 4) {
-    const rs = await Promise.all(todo.slice(i, i + 4).map(ykEps));
+    const rs = await Promise.all(todo.slice(i, i + 4).map(epsOf));
     rs.forEach((n, k) => { const x = todo[i + k];
       if (n == null) return;
       x.eps = n;
       if (n > 0) got++; else blank++; });
   }
-  return { carried, asked: todo.length, got, blank };
+  return { carried, asked: todo.length, got, blank,
+    ahead: first && first.size ? todo.filter(x => first.has(x.id)).length : 0 };
 }
 
 async function fetchYK(prevItems) {
@@ -373,9 +539,9 @@ async function fetchYK(prevItems) {
     strip.note = `片单那一路没回话（${pool.msg}），这一轮退回首页那一屏那 ${strip.items.length} 条`;
     r = strip;
   }
-  const s = await fillYKEps(r.items, prevItems);
-  r.note = `${r.note ? r.note + '；' : ''}集数：这一拍问了 ${s.asked} 条、拿到 ${s.got} 条`
-    + `（优酷自己写着 0 的 ${s.blank} 条不再敲第二遍）、沿用上一轮 ${s.carried} 条`;
+  const s = await fillEps(r.items, prevItems, ykEps);
+  r.note = `${r.note ? r.note + '；' : ''}集数：这一拍敲了 ${s.asked} 扇门、优酷填了 ${s.got} 部`
+    + `（它自己写着 0 的 ${s.blank} 部不再敲第二遍）、沿用上一轮 ${s.carried} 条`;
   return r;
 }
 
@@ -398,10 +564,57 @@ export function balance(str) {
 }
 
 // ---------- 芒果 ----------
-// 即将上线不在 /tv/ 频道（那 13 个模块里没有），在首页 channelId=5 的模块 12440 里，
-// 而且是混在该模块的 DSLList 中间，靠 moduleType==='vsubscribe' 认。
-// did 自己造一个随机 uuid 就行，接口不验它。
-async function fetchMG() {
+// 两条路并成一张单子：
+// ① 首页 channelId=5 的模块 12440（十来条，混在 DSLList 中间靠 moduleType==='vsubscribe' 认，
+//    不在 /tv/ 频道）—— 这一路给的是**屏内次序**，页面上先看见的就是它排在前面的。
+// ② 新片日历 playbill.api.mgtv.com/yy/feed（他 10-26 给的这一发）—— pbid=8 回 32 条、pbid=9 回 47 条，
+//    两张互有交叉（模块那 10 条 10/10 都在 9 里，8 里另有 4 条 9 里没有）⇒ 两发都要、按 aid 去重。
+/* ⚠ 这一发的 page / pageNum / pageSize / limit / type 全不起作用（实测五种写法回的是同一份 31,184 字节），
+      一张单子一次给完，不许照着「翻页」写个循环空转。
+   ⚠ 单子结构上**没有预约数**（一条 16 个字段摊开看过：img/imgHor/title/onlineText/status/info/tag/stag/
+      duration/onlineTime/calendarName/jumpKind/jumpId/childId/jumpUrl/tvChannelId/streamId）
+      ⇒ 「没问过 ≠ 没有」这一条对 count 同样成立，旧的 count 必须 carry 过来，不许被这一路的空盖掉。
+   ✅ 它 URL 上那串 did / mac / oaid / seqId **随手编一个就是同一份数据**（实测编一条 32 位十六进制，
+      回话字节数、条数、片名一片不差）⇒ 不需要任何真机标识，不进仓库、不建 secret。
+      代码里那串是每次运行现编的，跟腾讯那个 visitor id、这一家原本就在用的 mkUuid() 同一个性质。
+   ⚠ duration **不是集数**（证伪两次：咸鱼飞升库里 40 集、这一路写 17；灿烂如野 24 集、写 92），
+      这一路不许拿它当集数用，也不给它起个「共 N 集」的名字。
+   ⚠ 这一路的 onlineTime 32 条里只填了 1 条 ⇒ 它不比模块那一路多给档期，接它纯粹是为了那 40 来条片子。 */
+const MG_PBIDS = ['8', '9'];
+const MG_DOOR_MAX = 12;
+const MG_APP_UA = 'Mozilla/5.0 (Linux; Android 12; M2006J10C) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Mobile Safari/537.36';
+const mgHex = (n) => [...Array(n)].map(() => (Math.random() * 16 | 0).toString(16)).join('');
+export function mgFeedItem(x) {
+  const i = (x || {}).info || {};
+  if (!i.title || !x.aid) return null;
+  const ts = Number(i.onlineTime) || 0;
+  let date = null, time = null;
+  if (ts > 0) { const p = bjParts(new Date(ts * 1000)); date = `${p.year}-${p2(p.month)}-${p2(p.day)}`; time = `${p2(p.hour)}:${p2(p.minute)}`; }
+  return {
+    id: 'mg:' + x.aid, platform: 'mg', title: String(i.title),
+    genre: (i.tag || []).join(' · '), cast: '',
+    line: String(i.info || '').replace(/\s+/g, '').slice(0, 60),
+    count: null, hot: '', date, time, dateText: String(i.onlineText || ''), eps: null,
+    pic: httpsPic(i.imgHor || i.img || ''),
+    url: `https://www.mgtv.com/b/${x.aid}`,
+  };
+}
+async function mgPlaybill(pbid) {
+  const did = mgHex(32);
+  const q = new URLSearchParams({
+    _support: '10100001', device: 'M2006J10C', osVersion: '12', appVersion: '9.0.6',
+    androidPatch: '9.0.6', ticket: '', userId: '0', did, mac: did, osType: 'android',
+    channel: 'xiaomi', uuid: '', endType: 'mgtvapp', oaid: mgHex(16), ageMode: '0',
+    seqId: mgHex(32), version: '5.2', type: '10', abroad: '0', src: 'mgtv', uid: '',
+    phonetype: 'M2006J10C', testversion: '', allowedRC: '1', mf: 'Xiaomi', brand: 'Redmi',
+    page: '1', yyId: pbid });
+  const r = await get(`https://playbill.api.mgtv.com/yy/feed?${q}`, { headers: { 'user-agent': MG_APP_UA } });
+  let j; try { j = JSON.parse(r.body); } catch (e) { return { ok: false, msg: `pbid=${pbid} 没回话（${r.status}）` }; }
+  const feed = (((j || {}).data || {}).feed) || [];
+  if (Number(j.code) !== 200 || !feed.length) return { ok: false, msg: `pbid=${pbid} 回 code=${j && j.code} ${j && j.msg}` };
+  return { ok: true, items: feed.map(mgFeedItem).filter(Boolean) };
+}
+async function fetchMG(prevItems) {
   const did = mkUuid();
   const H = { 'user-agent': UA, 'referer': 'https://www.mgtv.com/' };
   const idx = await get(`https://dc.bz.mgtv.com/dynamic/v1/channel/index/${did}/9.0.9/10.0/10000000/space/0/4/5?osType=window&seqId=${did}&device=pc&playList=`,
@@ -410,6 +623,7 @@ async function fetchMG() {
   try { ids = (JSON.parse(idx.body).moduleIDS || []).map(x => String(x.moduleEntityId)); } catch (e) { /* 下面按没拿到处理 */ }
   // 12440 写死在第一位试；哪天它换了编号，就顺着首页给的模块表挨个找 vsubscribe。
   const order = ['12440', ...ids.filter(x => x !== '12440')].slice(0, 6);
+  let screen = [];
   for (const mid of order) {
     const r = await get(`https://dc.bz.mgtv.com/dynamic/v1/module/infos/${did}/9.0.9/10.0/10000000/space/0/4/5/${mid}?osType=window&seqId=${did}&device=pc&playList=`,
       { headers: H });
@@ -420,12 +634,51 @@ async function fetchMG() {
     if (!m) continue;
     const rows = (m.data.data || []).filter(x => x && x.title && x.aid);
     if (!rows.length) continue;
-    const items = dedupe(rows.map(mgItem));
-    const f = await fillMGCounts(items);
-    return { ok: true, items,
-      note: `预约数取到 ${f.got}/${items.length} 条、集数 ${f.eps} 条（同一页两个数，集数不另花请求）` };
+    screen = rows.map(mgItem);
+    break;
   }
-  return { ok: false, msg: '首页模块里没找到 vsubscribe（即将上线）那一段' };
+  const pb = await Promise.all(MG_PBIDS.map(mgPlaybill));
+  const dead = pb.filter(x => !x.ok).map(x => x.msg);
+  const feed = pb.filter(x => x.ok).flatMap(x => x.items);
+  if (!screen.length && !feed.length) {
+    return { ok: false, msg: `首页模块里没有 vsubscribe 那一段；日历那两发也没接上（${dead.join('；')}）` };
+  }
+  // 屏内次序以模块那一路为准，日历只往后面补新片（同一部以屏内那条为准，日历那条按 aid 去重丢掉）。
+  const items = dedupe([...screen, ...feed]);
+  const f = await fillMGDetail(items, prevItems);
+  return { ok: true, items,
+    note: `单子：首页屏内 ${screen.length} 条 + 日历 ${feed.length} 条 → 去重 ${items.length} 条`
+        + (dead.length ? `（日历没接上：${dead.join('；')}）` : '')
+        + `；这一拍敲了 ${f.asked} 扇门、预约数拿到 ${f.got} 条（集数顺带 ${f.eps} 条，芒果自己没写的记 0 不再敲）、沿用上一轮 ${f.carried} 条` };
+}
+/* 这一家的预约数和集数在同一个那一页上，所以只有一扇门：敲一次两跳，两个数一起拿。
+   十个一开就是 20 个并发请求砸人家 CDN，按 4 个一批走。 */
+export function mgQueue(items, max) { return items.filter(x => x.count == null || x.eps == null).slice(0, max); }
+/* 日历那一路整条没有预约数 ⇒ 它是「没问过」，不是「没有」：上一轮的 count 必须原样带过来，
+   不然接上这一路的下一拍，页面上那 10 个已有的数就全空了（和优酷集数那一条是同一个道理）。 */
+export function carryCounts(items, prevItems) {
+  const prev = new Map((prevItems || []).filter(x => x.platform === 'mg').map(x => [x.id, x]));
+  let kept = 0;
+  for (const x of items) {
+    if (x.count != null) continue;
+    const p = prev.get(x.id);
+    if (p && p.count != null) { x.count = p.count; kept++; }
+  }
+  return kept;
+}
+async function fillMGDetail(items, prevItems) {
+  const carried = carryEps(items, prevItems) + carryCounts(items, prevItems);
+  const todo = mgQueue(items, MG_DOOR_MAX);
+  let got = 0, eps = 0;
+  for (let i = 0; i < todo.length; i += 4) {
+    const rs = await Promise.all(todo.slice(i, i + 4).map(x => mgDetail(x.id.slice(3))));
+    rs.forEach((r, k) => {
+      const x = todo[i + k];
+      if (r.count != null) { x.count = r.count; got++; }
+      if (r.eps != null) { x.eps = r.eps; if (r.eps > 0) eps++; }
+    });
+  }
+  return { carried, asked: todo.length, got, eps };
 }
 /* 芒果那个 yy/query/type 口逆到底了，结论是不必再逆：bundle 里那一发的参数是
    {uuid, ticket: HDCN.split('-')[0], aids, appVersion, device, platform, external} —— 全程没有签名，
@@ -436,8 +689,8 @@ async function fetchMG() {
 const MG_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
 /* 第二跳那一页同时给两个数：预约数在 reserveInfo、集数在 updateInfo。
    它长这样："updateInfo":"共24集，更新至0集" —— 「更新至 0 集」正是还没开播，「共 N 集」是总集数。
-   电影那一条写的是「更新至0期」、整串没有「共」，所以只认「共N集」，拿不到就留空
-   （《蜘蛛侠：崭新之日》是这么空掉的，不是抓失败）。
+   电影那一条写的是「更新至0期」、整串没有「共」，所以只认「共N集」；
+   认不到的那条记 0（＝问过了、芒果没写），《蜘蛛侠：崭新之日》就是这么留成 0 的，不是抓失败。
    ⚠ rbTitle 不是总集数：那是桌面页逐集卡片上的「第1集」「第2集」，一条一集，
       待播那一屏（module 12440 的 vsubscribe）整段都没有它。 */
 async function mgDetail(aid) {
@@ -445,27 +698,17 @@ async function mgDetail(aid) {
   try {
     const hop = await get(`https://m.mgtv.com/b/${aid}`, { headers: { 'user-agent': MG_UA } });
     const m = /url=(https?:\/\/m\.mgtv\.com\/b\/\d+\/\d+\.html)/.exec(hop.body || '');
-    if (!m) return out;
+    if (!m) return out;                     // 连壳都没给跳转 ⇒ 当没敲过，下一拍再试
     const page = await get(m[1], { headers: { 'user-agent': MG_UA } });
+    if (!page.body || page.body.length < 2000) return out;   // 真页没拿到，同样当没敲过
     const j = /"reserveInfo":\[(\{[^\]}]*\})/.exec(page.body || '');
     if (j) { const o = JSON.parse(j[1]); if (String(o.aid) === String(aid)) out.count = num(o.yyNum); }
     const u = /"updateInfo":"共(\d+)集/.exec(page.body || '');
-    if (u) out.eps = Number(u[1]);
+    /* 页拿到了、整串没有「共N集」⇒ 芒果自己没写（电影就是这一种：那串写的是「更新至0期」）。
+       记 0 当「问过了」，不然这一条每拍都占着一扇门。和腾讯那条空串是同一个处理。 */
+    out.eps = u ? Number(u[1]) : 0;
   } catch (e) { return out; }
   return out;
-}
-// 十个一开就是 20 个并发请求砸人家 CDN，按 4 个一批走。
-async function fillMGCounts(items) {
-  let got = 0, eps = 0;
-  for (let i = 0; i < items.length; i += 4) {
-    const rs = await Promise.all(items.slice(i, i + 4).map(x => mgDetail(x.id.slice(3))));
-    rs.forEach((r, k) => {
-      const x = items[i + k];
-      if (r.count != null) { x.count = r.count; got++; }
-      if (r.eps != null) { x.eps = r.eps; eps++; }
-    });
-  }
-  return { got, eps };
 }
 function mkUuid() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -688,7 +931,7 @@ export function mergeDay(cur, fresh, at, counts) {
 
 export async function collectAll(prevItems) {
   const one = async (k, fn) => { try { return [k, await fn()]; } catch (e) { return [k, { ok: false, msg: k + ' 取数异常：' + e.message }]; } };
-  const rs = await Promise.all([one('qq', fetchQQ), one('yk', () => fetchYK(prevItems)), one('mg', fetchMG), one('iq', fetchIQ)]);
+  const rs = await Promise.all([one('qq', () => fetchQQ(prevItems)), one('yk', () => fetchYK(prevItems)), one('mg', () => fetchMG(prevItems)), one('iq', fetchIQ)]);
   return Object.fromEntries(rs);
 }
 
@@ -703,6 +946,11 @@ export function build(prevDoc, results, at) {
      优酷和芒果那两屏一条没动。所以 pos 是「这一拍那一屏」的快照，不是这部片子的固定编号。
      ⚠ 10-26 起优酷换走片单那一路（144 条），它那一份 pos 是「片单里排第几」，
      不再是首页那一横排的第几张 —— 那一屏只有 20 张，20 之后的序号在首页上根本不存在。
+     ⚠ 同一天芒果并上了新片日历（10 条 → 51 条）：前 10 位仍是首页那一屏从上到下，
+     11 之后是日历给的次序（去重时把 screen 排在 feed 前面就是为了保住这一点）。
+     ⚠ 同一天腾讯并上了筛选页那一路（100 条 → 126 条）：前 100 位仍是 coming_soon 那一屏，
+     101 之后是筛选页给的次序 —— 那一路自己那个「最热」不能拿来排序（拿它的 124 条对着卡片池的
+     预约整数数过，52 处逆序），所以它只能垫在卡片那一路后面，不能替它。
      回测「在前的快要定档」时，跨家的 pos 不能直接比大小，只能各家用各自那一路的次序。
      写在这里不写在 fetch 里：四家各有各的返回路径，漏一家就少一家，而这一处保证不漏；
      ⚠ 但必须在下面那个 sort 之前 —— 落盘前按预约数重排之后，原来的屏内次序就已经没了。
@@ -836,7 +1084,7 @@ async function main() {
   if (PROBE) { console.log('PROBE：不写文件'); return; }
   /* 每一轮都写：at 这个字段本身就是页面顶部「最后一次采集」那一行的全部内容，
      它不动，看的人就没法区分「今天一条新闻都没有」和「链路断了」。
-     待播池一天两拍（早 8 晚 8），30 个请求/拍、60 个请求/天，比嫁金钗那条半小时一拍的轻得多。 */
+     待播池一天两拍（早 8 晚 8）：固定 28 个请求/拍、56 个/天，加上逐条那笔浮动最多 76 个/拍。 */
   fs.writeFileSync(OUT, JSON.stringify(doc) + '\n', 'utf8');
   console.log(`写了 ${OUT}（${doc.items.length} 条 · ${doc.days.length} 天 diff）`);
 }
