@@ -891,7 +891,10 @@ async function fillIQCounts(items) {
      拿他的 device_id、空的、现场编的、去掉 referer、换手机 UA 各敲两遍，五组回的是同一份字节
      ⇒ 挡人的不是 device_id，也不是参数集（那两样上一版写在这里当嫌疑人，是猜的，今天证伪了）。
      它是按分钟开的窗口：10-25 21:18 那拍空、21:26 那拍对上 39/94，同一个 device_id。
-     所以这里只在**头一页拿到空壳**时歇几秒再敲一次：门开着时一个请求都不多花，挡着时最多多一发。 */
+     所以这里只在**头一页拿到空壳**时歇几秒再敲一次：门开着时一个请求都不多花，挡着时最多多一发。
+     ⚠ 10-27 把「挡」数了一遍：线上 13 份档案里 11 拍挡（10-26 12:47 起连着挡，重试那发也没救回来）。
+       同一时刻拿本机出口和 Cloudflare 出口各敲一发，回的是逐字节一样的空壳 ⇒ 门对两个出口同时关着，
+       「换出口绕过去」这一发还没测出分叉，别当成已经试过。 */
 async function enrichIQ(items) {
   if (!IQ_DID) return { dateRoute: false, spoken: null, msg: 'B 路跳过（没配 device_id），这一轮爱奇艺没有定档日；预约人数走 C 路那条匿名口，不受影响' };
   const VER = '17.103.26647';
@@ -1070,8 +1073,12 @@ export function build(prevDoc, results, at) {
      代价：片方悄悄把已公布的档期撤掉、而那一轮又恰好没回话时，这里会继续挂着旧日期 ——
      但那种情况本来就没有可信的信号，宁可留着并记一行警告，也不要让它凭空消失。 */
   const iqR = results.iq;
+  /* 档期那一路最后一次回话的时刻 —— 每一拍都往档案里带一份，接不上的那些拍好让页面有个时刻可报。
+     第一拍没有这个字段，所以「本次没回话」那一档先老实说没记上，等下一次接上就自己长出来了。 */
+  let iqOkAt = (prevDoc && prevDoc.iqOkAt) || null;
   if (iqR && iqR.ok && live.has('iq')) {
     const spoken = iqR.spoken instanceof Set ? iqR.spoken : null;
+    if (spoken) iqOkAt = at;
     const prevIQ = new Map(prevItems.filter(x => x.platform === 'iq').map(x => [x.id, x]));
     /* 上一轮的 items 自己也可能已经被同一只手擦过一遍 —— 10-26 08:30 那一拍就是这个状态。
        那种时候唯一还留着这个日期的地方是事件行：days[] 里那条「新定档」自带 date。
@@ -1084,7 +1091,6 @@ export function build(prevDoc, results, at) {
         for (const k of ['scheduled', 'rescheduled'])
           for (const r of (dy[k] || [])) if (r && r.date) archive.set(r.id, r);
     }
-    let carried = 0;
     for (const x of live.get('iq')) {
       if (x.date || (spoken && spoken.has(x.id))) continue;
       const p = prevIQ.get(x.id);
@@ -1092,10 +1098,13 @@ export function build(prevDoc, results, at) {
       if (from && from.date) {
         x.date = from.date; x.time = from.time || null; x.dateText = from.dateText || from.date;
         if (!x.line && from.line) x.line = from.line;
-        carried++;
       }
     }
-    if (carried) warnings.push({ platform: 'iq', field: 'date', msg: '爱奇艺本次没有获取排播日期' });
+    /* 这一行报的是那一路的通不通，不是「沿用了旧档期的有几部」—— 后者是缺席，看的人查不到。
+       ⚠ 池子里一部都没排上档期的那些拍，旧那句「本次没有获取排播日期」压根不印（它挂在沿用条数上），
+       现在改成只要这一路没回话就印 ⇒ 池子空着的时候这一行也在，那是它该有的样子。 */
+    if (!spoken) warnings.push({ platform: 'iq', field: 'date',
+      msg: iqOkAt ? `爱奇艺档期这一路最后一次回话 · ${iqOkAt}` : '爱奇艺档期这一路本次没回话' });
   }
   const kept = prevItems.filter(x => !live.has(x.platform));
   // 取到的覆盖同平台的旧条目，没取到的把旧条目留着（并记一条警告）。
@@ -1151,6 +1160,7 @@ export function build(prevDoc, results, at) {
     baseline,
     counts,
     platformAt,
+    iqOkAt,
     platforms: PLATFORMS,
     warnings,
     days,
