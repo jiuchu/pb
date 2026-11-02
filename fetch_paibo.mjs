@@ -3,17 +3,21 @@
 // 产出 paibo.json，一页看板读它。四个口全是匿名的：不要账号、不要浏览器、不落任何凭据。
 // 只有优酷那一发要按 mtop 的规矩现签一次（头一发换一枚临时票，签完就丢），其余连签名都没有。
 // 一轮 120 个固定请求（腾讯 4 + 腾讯即将上线筛选页 4 + 优酷 9 + 芒果首页 2 + 芒果新片日历 2
-//   + 爱奇艺 A 路 3 + 爱奇艺预约数 2 + 爱奇艺档期 92），一天四拍 = 480 个固定请求/天。
+//   + 爱奇艺 A 路 3 + 爱奇艺预约数 2 + 爱奇艺档期 92）。
+// ⚠ 一天几轮这件事要数两处，不是一处：Worker 定点四拍（北京 08:30 / 12:30 / 16:30 / 20:30），
+//   加工作流自己那个备份闹钟两拍 —— 它没有按事件名设门禁，迟到那一发照样采、照样提交
+//   （11-02 数过档案的提交时刻：北京 14:12 / 14:43 / 14:44 那几发就是它写的）。
+//   ⇒ 一天 6 轮 = 720 个固定请求/天。抬到四拍是 11-02 他要的，备份那两拍不是新加的、一直在跑。
 // ⚠ 大头是爱奇艺档期那一路：它按片名搜、没有批量口，一条一个请求 ⇒ 92 跟着池子大小走，
 //   池子涨到一百二它就跟着涨。按 4 个一批发，实测整池 16 秒跑完、连打 12 发零异常、
-//   四并发连敲 92 发零失败。一天四拍 ⇒ 那一个口一天 368 发，是这一版新担的账；
+//   四并发连敲 92 发零失败。一天 6 轮 ⇒ 那一个口一天 552 发，是这一版新担的账；
 //   真被挡了不会写坏档案（对上的不足 30 条就整轮当没问到，旧档期原样留着）。
 //   省它的办法只有一个：找到 App「新片预告」那一屏的列表口（一发给一整月的档期），
 //   11-02 还没找到，网页端只有逐条搜索这一种形状。
 // ⚠ 另有一笔浮动的：三家有逐条补的数 —— 优酷和腾讯的集数在每部片子自己的详情页（一条一个请求），
 //   芒果的预约数、集数、类型在每部片子自己的移动端页（一条两个请求：445 字节的壳 → 真页）。
-//   每家每拍最多补 12 条 ⇒ 浮动上限 12×2 + 12 + 12 = 48 个，一轮最多 120+48=168 个、一天最多 672 个。
-//   池子铺一遍：腾讯 126 条约 11 拍、优酷 144 条约 12 拍、芒果 51 条约 5 拍，之后每拍只碰新进池的那几条。
+//   每家每拍最多补 12 条 ⇒ 浮动上限 12×2 + 12 + 12 = 48 个，一轮最多 120+48=168 个、一天最多 1008 个（6 轮）。
+//   池子铺一遍：腾讯 138 条约 12 拍、优酷 144 条约 12 拍、芒果 51 条约 5 拍，之后每拍只碰新进池的那几条。
 //   ⚠ 芒果这一版多排队列一项（类型）：10-26 上传后的头几拍它要把这 51 条重新走一遍门，约 5 拍认完，
 //     认一条少一条（认出的类型存在档案里，下一拍接回来用），认完之后就只剩新进池的那几条排队。
 //     这一拍之前页面上还会看见电影和动漫，不是我漏了 —— 门数没变，只是排在后面的还没敲到。
@@ -76,6 +80,21 @@
 //   后三家一条一次敲门（芒果那一门两个请求），实测填充率优酷约三成、腾讯 8/100 ——
 //   所以各按每拍 12 扇门铺，问过没给的记下 0 不再敲第二遍（刚定档的那一条会重新敲，那是平台改口集数的时候）。
 //   页面上这一列印的是「N 集」，谁没给就空着，不拿别家的数顶，也不拿 0 印成「0 集」。
+//
+// ⚠ 主演这一栏只有两家给得起：
+//   爱奇艺 = A 路的 people.main_charactor（结构化，白拿）；
+//   腾讯 = 列表那一格当值、逐条详情页的 star_list 当核对（跟着集数那一扇门一起拿，一个额外请求不花）。
+//   优酷、芒果这两个口压根没有主演这一项，那一栏留着空，不拿片名去猜。
+//   11-02 两笔账分开核过：① 上一版档案里 119 条有主演，**只有 3 条填的是宣传语**
+//     （赢风「情利交刃传奇开幕」、此刻的生活「别墅区人心拉扯」、多喜一家人「平凡人家大戏启幕」）
+//     —— 他截图抓到的正是前两条；② 抽 24 部逐条敲详情页当标准答案，卡片路 topic_label 对 13/15、
+//     筛选页 sub_title 对 20/23，没对上的那几条是「那一格本来空着」和「列表把导演排掉了」，一条宣传语都不是。
+//     ⇒ 列表那一格是主演本尊、但不是干净的：错的那 3 条要能被挡掉，才配继续印在「主演」下面。
+//   ⚠ 反过来 star_list 也不干净：它是主创名单，导演和编剧混在里面排前头
+//     （大唐辟珠记第一位是导演费振翔、35而已 那两个是导演+编剧、来战第四位是原著作者九鹭非香）。
+//     所以两个来源都不许单独信：列表那格的第一名字能在 star_list 里找到 ⇒ 留列表那格（它反倒排掉了导演）；
+//     找不到 ⇒ 那格填的不是人 ⇒ 换成 star_list 前四个（赢风就是这么变成「万鹏、张弛、迟蓬、黄景瑜」的，
+//     和他 App 截图那一排一字不差）。两边都拿不出人 ⇒ 空着。
 //
 // 历史为什么必须自己攒：四个口都只回「当前」这一屏，没有更深的历史接口。
 // 哪天定档、哪天进池、哪天被撤，只有这个文件里留着。所以它是「读旧-追加-写新」，
@@ -187,7 +206,10 @@ export function qqTier(p) {
   } catch (e) { /* 那一格偶尔不是合法 JSON */ }
   return '';
 }
-// 这一路的 sub_title 是主演（空格分隔），second_title 才是那句宣传语 —— 和卡片那一路正好反着。
+// ⚠ 这一路 sub_title 当主演取、second_title 当宣传语取（和卡片那一路正好反着：卡片路 sub_title 是宣传语）。
+//   同一份字段名在两条路上意思对调，接错的那一版「主演」那一栏会整列变成一句广告词、且没有一项会红。
+//   ⚠ 取回来同样不算是认过的（castOk=false）：这一路 124 条里 sub_title 也掺宣传语（赢风那一行就是），
+//     要等逐条那一扇门和详情页 star_list 对过才落字。见上面 topic_label 那一段的两笔账。
 // ⚠ 124 条实测 type/item_type 全是 '2'（剧集），因为这张列表就是电视剧频道的；同一个字段名在
 //   nav_card 那八张卡上是「频道 id」。所以别顺手把 filter_params 改成别的频道 —— 改了就混进电影，
 //   而这一路没有类目字段可以拦（真到那一步要按 type 拦，并在注记里报拦掉几条）。
@@ -196,8 +218,7 @@ export function qqListItem(p) {
   return {
     id: 'qq:' + p.cid, platform: 'qq', title: String(p.title),
     genre: String(p.main_genre || ''),
-    cast: String(p.sub_title || '').replace(/[[\]]/g, ' ').trim().split(/\s+/).filter(Boolean).join('、'),
-    line: String(p.second_title || ''), count: null, hot: qqTier(p),
+    cast: qqCastSp(p.sub_title), castOk: false, line: String(p.second_title || ''), count: null, hot: qqTier(p),
     date: null, time: null, dateText: '', eps: null,
     pic: httpsPic(p.new_pic_vt || p.new_pic_hz),
     url: 'https://v.qq.com/detail/' + String(p.cid).charAt(0) + '/' + p.cid + '.html',
@@ -277,7 +298,7 @@ async function fetchQQ(prevItems) {
           const d = qqDate(p.online_time);
           out.push({
             id: 'qq:' + p.cid, platform: 'qq', title: String(p.title),
-            genre: qqGenre(p.topic_label), cast: qqCast(p.topic_label),
+            genre: qqGenre(p.topic_label), cast: qqCast(p.topic_label), castOk: false,
             line: String(p.sub_title || ''), count: num(p.order_person_count), hot: '',
             date: d.date, time: d.time, dateText: d.text, eps: null,
             pic: httpsPic(p.priority_image_url || p.image_url),
@@ -296,17 +317,31 @@ async function fetchQQ(prevItems) {
   const listItems = await qqList();
   const m = mergeQq(out, listItems);
   const items = dedupe(m.items);
-  const s = await fillEps(items, prevItems, qqEps, m.only);
+  /* 列表那一格只有一个名字的（庆余年/万花世界/风禾尽起张居正/武神岛 这种，也可能是赢风那种广告词）
+     先敲门 —— 全池 7 条，一拍就扫完；剩下的按筛选页独有 → 站内次序排。 */
+  const odd = new Set(items.filter(x => x.cast && x.cast.indexOf('、') < 0).map(x => x.id));
+  const s = await fillEps(items, prevItems, qqDetail, m.only, x => x.eps == null || !x.castOk, odd);
+  const wait = items.filter(x => !x.castOk).length;
   return { ok: true, items,
     note: `单子：待播卡片 ${cardCount} 条 + 即将上线筛选页 ${listItems.length} 条 → 新增 ${m.added} 条；`
       + `集数：这一拍敲了 ${s.asked} 扇门、其中 ${s.ahead} 扇先给筛选页那一路（它独有的那些条腾讯填得最勤）、`
       + `腾讯填了 ${s.got} 部`
-      + `（它自己留空的 ${s.blank} 部不再敲第二遍）、沿用上一轮 ${s.carried} 条` };
+      + `（它自己留空的 ${s.blank} 部不再敲第二遍）、沿用上一轮 ${s.carried} 条；`
+      + `主演：这一拍核了 ${s.kept + s.fixed + s.none} 条，列表那格对得上留着的 ${s.kept} 条、`
+      + `对不上换成详情页名单的 ${s.fixed} 条、两边都没人的 ${s.none} 条`
+      + `；全池还差 ${wait} 条没敲到门` };
 }
-// topic_label 形如「爱情|陈飞宇|张子枫」：第一段是类型，后面是主演。上游不给分开的字段。
+// topic_label 形如「爱情|陈飞宇|张子枫」：第一段是类型，后面几段是主演 —— 但腾讯偶尔把宣传语塞进那几段
+//   （赢风「剧情|情利交刃传奇开幕」、此刻的生活「都市|别墅区人心拉扯」，上一版 119 条里就有这 3 条）。
+//   所以这里照它自己拼的次序取，取回来先不算认过（castOk=false），
+//   等逐条那一扇门（qqDetail 的 star_list）对一遍才写字：列表那格第一个名字在 star_list 里 ⇒ 留着；
+//   不在 ⇒ 那格填的不是人 ⇒ 换成 star_list 前四个。原来那版无条件 slice(1) 直接印，
+//   页面上就出过「主演 情利交刃传奇开幕」——它不报错、不空屏，只是标签下面是别的东西。
 const qqSplit = s => String(s || '').split('|').map(x => x.trim()).filter(Boolean);
 const qqGenre = s => qqSplit(s)[0] || '';
 const qqCast = s => qqSplit(s).slice(1).join('、');
+// 筛选页那一路的 sub_title 是空格分隔的人名（实测「高至霆 金瀚 卜冠今 李嘉鑫」），同样偶尔是宣传语。
+const qqCastSp = s => String(s || '').split(/\s+/).map(x => x.trim()).filter(Boolean).join('、');
 // online_time 是「2026-10-31 10:00:00」这种整串；待播的绝大多数是空串 —— 空串就是还没定档，
 // 不是缺字段。腾讯这个字段在电影频道那条定档的片子身上确实填了值，所以判定成立。
 export function qqDate(s) {
@@ -468,11 +503,18 @@ async function fetchYKStrip() {
    腾讯 详情页 getPage 的 pc_introduction 卡 params.episode_all（一条 6~11 万字节）。
    ⚠ 一部一个请求 ⇒ 池子 126/144 部全取一遍就是 126/144 个请求，跟固定那 120 发一个量级。
       所以每家每拍各只补「还没有数」的前 EPS_MAX 条，按站内次序 —— 靠前的正是页面上先看见的。
-      铺满一遍：腾讯约 11 拍、优酷约 12 拍，之后每拍只碰新进池的那几条。
-   ⚠ 腾讯这一家把「筛选页独有的那几条」提到队列最前（它独有的 26 条填了 21 条，卡片那一屏 100 条只填 8 条）：
-      按站内次序排要第九拍才轮到它们，等于那 21 个数字白等多六天。⇒ 前三拍基本全砸在筛选页那一路，
-      页面上那 26 条（pos 101 往后）会先有集数、卡片那一屏反倒后有。整池那 126 条仍旧 11 拍铺完（门数没变，只是先后调了个过），
-      代价是卡片那一屏自己从第九拍推到第十一拍 —— 那一屏填率本来就低，多等的两拍里压着的数没几个。
+      铺满一遍：腾讯约 12 拍、优酷约 12 拍，之后每拍只碰新进池的那几条。
+   ⚠ 腾讯这一家把「列表那一格只有一个名字的」提到队列最前（11-02 全池 7 条），再排「筛选页独有的那几条」
+      （它独有的 26 条填了 21 条，卡片那一屏 100 条只填 8 条）：
+      按站内次序排要第九拍才轮到它们，等于那 21 个数字白等多六天。⇒ 头几拍基本砸在这两档上，
+      卡片那一屏反倒后有。代价是卡片那一屏自己从第九拍推到第十一拍 ——
+      那一屏填率本来就低，多等的两拍里压着的数没几个。
+   ⚠ 11-02 起腾讯那一扇门多核一项「主演」（同一张 pc_introduction 卡上的 star_list，一个请求不多花）：
+      排队判据从「还没有集数」放宽成「集数或主演还欠着」⇒ 上传后的头 12 拍门数不变、但全砸在重走上，
+      这期间腾讯的集数补数会慢下来。和芒果那一版多排「类型」是同一个改法、同一笔账。
+      这一版不清库、不空栏：列表那一格照旧印（上一版 119 条里 116 条本来就是主演，不能为 3 条广告词把它们抹了），
+      门敲到的那一条才对它下判断 —— 对得上留、对不上换成详情页名单。⇒ 那 3 条广告词第一拍就没了（排在队首），
+      其余的在一两天里逐条盖上「核过」这一章；没盖到的那几天里，那一栏是「腾讯列表自己填的、还没对过名单」。
    ⚠ 「这一家自己没填」两家写法不同：优酷是 "episodeTotal":0，腾讯是空串。两个都归成 eps=0
       留下（页面拿不到就不印），不然每拍都在重敲同一批没人接的电话。
    ⚠ 代价摆在这里：一条现在写 0 的片子，平台后来改口公布了集数，光靠「问过一次」是看不见的。
@@ -494,22 +536,52 @@ export function carryEps(items, prevItems) {
 }
 /* first 是「这一拍先敲哪几条」的名单：不在名单里的仍按站内次序排在后面。
    腾讯传的只有筛选页那一路独有的条 —— 它自己那 26 条填了 21 个，卡片那一屏 100 条只填 8 个，
-   每拍 12 扇门按站内次序敲要第九拍才轮到它们，那 21 个数字白白多等六天。 */
-export function pickEps(items, max, first) {
-  const todo = items.filter(x => x.eps == null);
-  if (!first || !first.size) return todo.slice(0, max);
-  const head = todo.filter(x => first.has(x.id));
-  return head.concat(todo.filter(x => !first.has(x.id))).slice(0, max);
+   每拍 12 扇门按站内次序敲要第九拍才轮到它们，那 21 个数字白白多等六天。
+   head 比 first 还要靠前，只在这一版铺主演的时候有货：列表那一格只有一个名字的（11-02 全池 7 条），
+   那 7 条分不清是「就一个主演」还是「填的是一句宣传语」—— 上一版页面上那 3 条广告词全在这一档里。
+   把它排在最前不是靠猜把人名挑出来，只是决定先敲哪几扇门；敲开之后仍按 checkCast 对名单。
+   pending 是「这一条还欠什么」的判据，不传就是只欠集数；腾讯那一版还欠主演核对（同一扇门两个数，见 qqDetail）。 */
+export function pickEps(items, max, first, pending, head) {
+  const todo = items.filter(pending || (x => x.eps == null));
+  const rest = x => !((head && head.has(x.id)) || (first && first.has(x.id)));
+  if (!head || !head.size) {
+    if (!first || !first.size) return todo.slice(0, max);
+    return todo.filter(x => first.has(x.id))
+      .concat(todo.filter(x => !first.has(x.id))).slice(0, max);
+  }
+  return todo.filter(x => head.has(x.id))
+    .concat(todo.filter(x => !head.has(x.id) && first && first.has(x.id)))
+    .concat(todo.filter(rest)).slice(0, max);
+}
+/* 核过的主演才许带到下一拍（castOk 是那一扇门的记号，不是列表给的）。
+   不带这个记号会坏在两处：下一拍列表那一格又把同一句广告词写回来（赢风那种换了来源也不见底），
+   以及已经换成详情页名单的那一条被列表值倒回去。 */
+export function carryCast(items, prevItems) {
+  const prev = new Map((prevItems || []).map(x => [x.id, x]));
+  let kept = 0;
+  for (const x of items) {
+    const p = prev.get(x.id);
+    if (!x.castOk && p && p.castOk) { x.cast = p.cast || ''; x.castOk = true; kept++; }
+  }
+  return kept;
 }
 async function ykEps(x) {
   try {
     const r = await get(`https://m.youku.com/alipay_video/id_${x.id.slice(3)}.html`,
       { headers: { 'user-agent': MG_UA, referer: 'https://m.youku.com/' } });
     const m = /"episodeTotal":(\d+)/.exec(r.body || '');
-    return m ? Number(m[1]) : null;
+    return m ? { eps: Number(m[1]) } : null;
   } catch (e) { return null; }
 }
-async function qqEps(x) {
+/* 腾讯逐条那一扇门一次给两个数：集数在 episode_all，主演名单在 star_list。
+   ⚠ star_list 是腾讯自己拼的一段 JSON 字符串（[{"name":"万鹏","id":"…","vuid":"…"},…]），
+     11-02 拿他截图那三条核过：赢风回「万鹏、张弛、迟蓬、黄景瑜」正是 App 详情页那一排。
+   ⚠ 但它不是「主演」名单而是「主创」名单：导演、编剧、原著作者混在里面，还常排在头一个
+     （大唐辟珠记第一位是导演费振翔、35而已 那两个是导演+编剧、来战第四位是原著作者九鹭非香）。
+     所以这一扇门给的是核对用的名单（names），不是直接往页面上印的那一行。
+   ⚠ 那一格是空数组、或者压根不是合法 JSON 时也算敲过了（names 回空数组），
+     下一拍不再为它开门 —— 和 episode_all 那个空串归 0 是同一种守法。 */
+async function qqDetail(x) {
   const j = await qqPost('getPage', {
     page_params: { ad_wechat_authorization_status: '0', req_from: 'web_vsite', ad_exp_ids: '', pc_sdk_version: '',
       pc_oaid: '', new_mark_label_enabled: '1', pc_device_info: '', support_pc_yyb_mobile_app_engine: '0',
@@ -520,23 +592,45 @@ async function qqEps(x) {
     page_context: {} });
   for (const m of ((((j || {}).data || {}).CardList) || [])) for (const g of Object.values(m.children_list || {}))
     for (const c of (g.cards || [])) if (c.type === 'pc_introduction') {
-      const v = String((c.params || {}).episode_all || '').trim();
-      return v === '' ? 0 : (Number(v) || 0);        // 空串 = 腾讯自己没填，也算问过了
+      const p = c.params || {};
+      const v = String(p.episode_all || '').trim();
+      let names = [];
+      try {
+        const s = JSON.parse(p.star_list || '[]');
+        if (Array.isArray(s)) names = s.map(a => a && a.name).filter(Boolean);
+      } catch (e) { /* 那一格畸形 = 问过了、拿不出人名 */ }
+      return { eps: v === '' ? 0 : (Number(v) || 0), names };       // 空串 = 腾讯自己没填，也算问过了
     }
   return null;                                       // 连简介卡都没有 ⇒ 当没敲过，下一拍再试
 }
-async function fillEps(items, prevItems, epsOf, first) {
-  const carried = carryEps(items, prevItems);
-  const todo = pickEps(items, EPS_MAX, first);
-  let got = 0, blank = 0;
+/* 列表那一格（卡片路 topic_label 尾段 / 筛选页 sub_title）和详情页那份主创名单对一遍：
+   列表那格的第一个名字能在 star_list 里找到 ⇒ 它填的是人，留着（它反倒把导演排掉了：大唐辟珠记
+   列表=「田曦薇、宋威龙」，star_list 头一个是导演费振翔）；
+   找不到 ⇒ 那一格塞的是宣传语（赢风=「情利交刃传奇开幕」），换成 star_list 前四个 ——
+   那是腾讯自己在 App 详情页同一排上印的东西，不是我挑的；
+   两边都拿不出人 ⇒ 空着，不印。 */
+export function checkCast(x, names) {
+  const got = (x.cast || '').split('、').filter(Boolean);
+  if (got.length && names.includes(got[0])) return 'kept';
+  if (names.length) { x.cast = names.slice(0, 4).join('、'); return 'fixed'; }
+  return 'blank';
+}
+async function fillEps(items, prevItems, detailOf, first, pending, head) {
+  const carried = carryEps(items, prevItems) + carryCast(items, prevItems);
+  const todo = pickEps(items, EPS_MAX, first, pending, head);
+  let got = 0, blank = 0, kept = 0, fixed = 0, none = 0;
   for (let i = 0; i < todo.length; i += 4) {
-    const rs = await Promise.all(todo.slice(i, i + 4).map(epsOf));
-    rs.forEach((n, k) => { const x = todo[i + k];
-      if (n == null) return;
-      x.eps = n;
-      if (n > 0) got++; else blank++; });
+    const rs = await Promise.all(todo.slice(i, i + 4).map(detailOf));
+    rs.forEach((r, k) => { const x = todo[i + k];
+      if (r == null) return;                          // 门没开：两个数都算没问过，下一拍再敲
+      if (r.eps != null) { x.eps = r.eps; if (r.eps > 0) got++; else blank++; }
+      if (r.names) {                                  // 只有腾讯那扇门带名单；优酷那扇没有这一项
+        const v = checkCast(x, r.names);
+        x.castOk = true;
+        if (v === 'kept') kept++; else if (v === 'fixed') fixed++; else none++;
+      } });
   }
-  return { carried, asked: todo.length, got, blank,
+  return { carried, asked: todo.length, got, blank, kept, fixed, none,
     ahead: first && first.size ? todo.filter(x => first.has(x.id)).length : 0 };
 }
 
@@ -1175,8 +1269,9 @@ async function main() {
   if (PROBE) { console.log('PROBE：不写文件'); return; }
   /* 每一轮都写：at 这个字段本身就是页面顶部「最后一次更新」那一行的全部内容，
      它不动，看的人就没法区分「今天一条新闻都没有」和「链路断了」。
-     待播池一天四拍（08:30 / 12:30 / 16:30 / 20:30 北京，11-02 从两拍抬上来的）：
-     固定 120 个请求/拍、480 个/天，加上逐条那笔浮动最多 48 个/拍。
+     待播池定点一天四拍（08:30 / 12:30 / 16:30 / 20:30 北京，11-02 从两拍抬上来的），
+     再算上工作流自己那个备份闹钟两拍（它没按事件名设门禁，迟到那一发照样采、照样提交）= 一天 6 轮：
+     固定 120 个请求/拍、720 个/天，加上逐条那笔浮动最多 48 个/拍。
      大头是爱奇艺档期那 92 发 —— 那个口按片名搜、没有批量口，一条一发，数目跟着池子走。 */
   fs.writeFileSync(OUT, JSON.stringify(doc) + '\n', 'utf8');
   console.log(`写了 ${OUT}（${doc.items.length} 条 · ${doc.days.length} 天 diff）`);
