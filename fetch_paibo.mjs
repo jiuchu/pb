@@ -224,6 +224,37 @@ export function qqTier(p) {
   } catch (e) { /* 那一格偶尔不是合法 JSON */ }
   return '';
 }
+/* ── 腾讯的类型其实有两格（11-02 他指着「年代谍战」问：页面上四个字，我们怎么只印「谍战」）────
+   main_genre 是它自己那套**大类**（谍战 / 爱情 / 武侠），而网页片名底下那一排印的是
+   chnlist_search_label 里 **category=80** 那一串**复合类型**（千里江山图=年代谍战、
+   花间酒人间月=偶像爱情+古装爱情）。旧版只读了大类那一格，所以四家里只有腾讯这一栏永远是单值
+   （优酷 87/144、芒果 38/47、爱奇艺 27/92 都带「 · 」，腾讯 0/138）。
+   ⚠ 同一格里还有 category=90（剧情元素：相爱相杀、时间轮回、头脑博弈）和 100（厂牌：港剧、X剧场）。
+     那是另外两套口径，**不并进类型串** —— 混成一串等于我造一个腾讯自己没有的「类型」，
+     看的人分不清哪枚是分类、哪枚是卖点。
+   136 条实测：111 条有 80 那一档，其中 61 条不止一枚（最多四枚）；剩下 25 条回落到大类。
+   去重按「包含」：大类「谍战」被复合标签「年代谍战」整个包住 ⇒ 只留长的，
+   不然页面上印的是「谍战 · 年代谍战」，同一件事说两遍。
+   ⚠ 上限 3 枚不是数据给到 3 就停：大屏那一档 .sb 是 nowrap + 省略号，第四枚会把「主演」挤出可见区。
+   ⚠ 这一格是 JSON **字符串**（要 parse，和 qqTier 同一个字段），且卡片那一路（coming_soon）没有它 ——
+     所以两条路要在 mergeQq 里比一比谁给得多，见下面那一段。 */
+const QQ_LABEL_CAP = 3;
+export function qqLabels(p) {
+  try {
+    const out = [];
+    for (const l of JSON.parse((p || {}).chnlist_search_label || '[]')) {
+      if (!l || l.category !== 80 || !l.label) continue;
+      const s = String(l.label).trim();
+      if (s && out.indexOf(s) < 0) out.push(s);
+    }
+    return out;
+  } catch (e) { return []; }                       // 那一格不是合法 JSON ⇒ 回落到大类，不算没采到
+}
+export function qqGenreText(main, labels) {
+  const uniq = [];
+  for (const s of [main].concat(labels || [])) { const t = String(s == null ? '' : s).trim(); if (t && uniq.indexOf(t) < 0) uniq.push(t); }
+  return uniq.filter(s => !uniq.some(o => o !== s && o.indexOf(s) >= 0)).slice(0, QQ_LABEL_CAP).join(' · ');
+}
 // ⚠ 这一路 sub_title 当主演取、second_title 当宣传语取（和卡片那一路正好反着：卡片路 sub_title 是宣传语）。
 //   同一份字段名在两条路上意思对调，接错的那一版「主演」那一栏会整列变成一句广告词、且没有一项会红。
 //   ⚠ 取回来同样不算是认过的（castOk=false）：这一路 124 条里 sub_title 也掺宣传语（赢风那一行就是），
@@ -235,7 +266,7 @@ export function qqListItem(p) {
   if (!p || !p.title || !p.cid) return null;
   return {
     id: 'qq:' + p.cid, platform: 'qq', title: String(p.title),
-    genre: String(p.main_genre || ''),
+    genre: qqGenreText(p.main_genre, qqLabels(p)),
     cast: qqCastSp(p.sub_title), castOk: false, line: String(p.second_title || ''), count: null, hot: qqTier(p),
     date: null, time: null, dateText: '', eps: null,
     pic: httpsPic(p.new_pic_vt || p.new_pic_hz),
@@ -247,15 +278,30 @@ export function qqListCards(j) {
 }
 /* 两条路并一张单子：卡片那一路排在前面 —— pos 认的是 coming_soon 那一屏的次序，
    而且只有那一路带精确预约数和档期。筛选页独有的那些条追在后面。
-   传进来的数组不许被改写（外面还指着它算卡片条数）。 */
+   ⚠ 传进来的数组的长度和次序不许动（外面还指着它算卡片条数）；条目对象照旧原地填 ——
+     集数、主演、类型都是这么填的。
+   类型那一格两条路各给一半：卡片路的 topic_label 只有大类一段，筛选页还带着复合标签（年代谍战），
+   所以重叠的那 98 条要拿筛选页那一版 —— 其余字段一律不动，别把精确预约数换没。 */
 export function mergeQq(cardItems, listItems) {
   const out = cardItems.slice();
   const has = new Set(out.map(x => x.id));
+  const byId = new Map(out.map(x => [x.id, x]));
   const only = new Set();
-  let added = 0;
-  for (const x of listItems) if (!has.has(x.id)) { out.push(x); has.add(x.id); only.add(x.id); added++; }
+  const seg = s => (s ? String(s).split(' · ').filter(Boolean).length : 0);
+  let added = 0, richer = 0;
+  for (const x of listItems) {
+    if (has.has(x.id)) {
+      const t = byId.get(x.id);
+      /* 条数不许多、不许少，只许换：卡片那一路的类型永远是一段（topic_label 只取第一段大类），
+         筛选页那一路给的是「大类 + 复合标签」，所以段数相同的时候也是它那一版更满。
+         哪天卡片路自己多出第二段，这条 >= 就自动退回去，不会把多的换成少的。 */
+      if (t && x.genre && x.genre !== t.genre && seg(x.genre) >= seg(t.genre)) { t.genre = x.genre; richer++; }
+      continue;
+    }
+    out.push(x); has.add(x.id); only.add(x.id); added++;
+  }
   /* only 交给集数那一队当「先敲这些」的名单 —— 这一路独有的条填率 21/26，卡片那一屏只有 8/100。 */
-  return { items: out, added, only };
+  return { items: out, added, richer, only };
 }
 async function qqList() {
   const out = [];
@@ -342,6 +388,7 @@ async function fetchQQ(prevItems) {
   const wait = items.filter(x => !x.castOk).length;
   return { ok: true, items,
     note: `单子：待播卡片 ${cardCount} 条 + 即将上线筛选页 ${listItems.length} 条 → 新增 ${m.added} 条；`
+      + `类型：从筛选页那一路接回复合标签 ${m.richer} 条（卡片那一路只给大类一段）；`
       + `集数：这一拍敲了 ${s.asked} 扇门、其中 ${s.ahead} 扇先给筛选页那一路（它独有的那些条腾讯填得最勤）、`
       + `腾讯填了 ${s.got} 部`
       + `（它自己留空的 ${s.blank} 部不再敲第二遍）、沿用上一轮 ${s.carried} 条；`
