@@ -14,9 +14,13 @@
 //   真被挡了不会写坏档案（对上的不足 30 条就整轮当没问到，旧档期原样留着）。
 //   省它的办法只有一个：找到 App「新片预告」那一屏的列表口（一发给一整月的档期），
 //   11-02 还没找到，网页端只有逐条搜索这一种形状。
-// ⚠ 另有一笔浮动的：三家有逐条补的数 —— 优酷和腾讯的集数在每部片子自己的详情页（一条一个请求），
-//   芒果的预约数、集数、类型在每部片子自己的移动端页（一条两个请求：445 字节的壳 → 真页）。
-//   每家每拍最多补 12 条 ⇒ 浮动上限 12×2 + 12 + 12 = 48 个，一轮最多 120+48=168 个、一天最多 1008 个（6 轮）。
+// ⚠ 另有一笔浮动的：三家有逐条补的数 —— 优酷的集数+主演在每部片子自己的 www show 页（一条一个请求），
+//   腾讯的集数+主演在自己的详情页（一条一个请求），
+//   芒果的预约数、集数、类型、主演在自己的移动端页（一条两个请求：445 字节的壳 → 真页）。
+//   每家每拍最多补 12 条 ⇒ 浮动上限 12 + 12 + 12×2 = 48 个，一轮最多 120+48=168 个、一天最多 1008 个（6 轮）。
+//   ⚠ 优酷那一栏还有一个尾部：www 那张页被优酷自己的反爬掐掉时（回 1,529 字节的 punish 跳转，不是没这页）
+//     要多补一发 m 站才拿得到集数 ⇒ 那一拍最多 12×2 个，全池被掐的天花板是 60 个/拍、一天 1080 个。
+//     本机实测这一发是被我自己敲出来的（几分钟 40 多发），Actions 每拍 12 发没这个密度。
 //   池子铺一遍：腾讯 138 条约 12 拍、优酷 144 条约 12 拍、芒果 51 条约 5 拍，之后每拍只碰新进池的那几条。
 //   ⚠ 芒果这一版多排队列一项（类型）：10-26 上传后的头几拍它要把这 51 条重新走一遍门，约 5 拍认完，
 //     认一条少一条（认出的类型存在档案里，下一拍接回来用），认完之后就只剩新进池的那几条排队。
@@ -36,8 +40,11 @@
 //   优酷  GET acs.youku.com/h5/mtop.youku.columbus.gateway.new.execute  片单 22916606「即将上线」
 //         → 一页 20 条、八页收完，实测 144 条，带精确预约整数 reserve.count
 //         退路是首页 SSR（www.youku.com/ku/webtv）那一屏，只有 20 条；片单不回了才走它
-//         集数不在这一路里，在每部片子自己的详情页 GET m.youku.com/alipay_video/id_<showid>.html
-//         的 episodeTotal（www 那张同字段、但 38~62 万字节，所以走 m 站那张 6 万的），一条一个请求
+//         集数和主演都不在这一路里，在每部片子自己的详情页 GET www.youku.com/show/id_<showid>.html：
+//         同一页里 episodeTotal 给集数、person[] 里 type 为 performer 的那些人给主演，一条一个请求。
+//         ⚠ 11-02 之前走的是 m.youku.com/alipay_video 那张 6 万字的页面（同一个 episodeTotal，省字节），
+//           但那张页面上**没有主演名单**（主演只在 showSubtitle 那句宣传语里出现）⇒ 门挪到 www 这一张
+//           （40 万字上下），请求数一个不多花；www 被优酷自己的反爬掐掉时退回 m 站那一发只拿集数。
 //   芒果  两条路并一张单子：
 //         ① GET dc.bz.mgtv.com/dynamic/v1/channel/index → module/infos：首页模块 12440 内嵌的 vsubscribe DSL，
 //            10 条，带 onlineTime（Unix 秒）—— 屏内次序以这一路为准
@@ -45,8 +52,11 @@
 //            pbid=8 给 32 条、pbid=9 给 47 条（两张互有交叉，①那 10 条全在 9 里）；
 //            ⚠ 这一路的 URL 参数里那串设备标识（did/mac/oaid/seqId）随手编的就是同一份数据，不需要真机号
 //            ⚠ 这一路结构上没有预约数，也没有集数（duration 不是集数，实测证伪过）
-//         三个数都在逐条那一扇门里：m.mgtv.com/b/<aid> 两跳到 SSR 的 reserveInfo[0].yyNum（精确预约数），
-//         同一页里还有 "updateInfo":"共24集，更新至0集"，页头 <title> 末段是芒果自己标的类型 ⇒ 一次敲门拿三个数
+//         四个数都在逐条那一扇门里：m.mgtv.com/b/<aid> 两跳到 SSR 的 reserveInfo[0].yyNum（精确预约数），
+//         同一页里还有 "updateInfo":"共24集，更新至0集"，页头 <title> 末段是芒果自己标的类型，
+//         页内那段 videoinfo 里有 "演员：檀健次 \u002F 卢昱晓 \u002F …" ⇒ 一次敲门拿四个数，一个请求不多花
+//         ⚠ 演员那一格的**键号会错位**（上星剧多插一条 "电视台："，演员就从键 3 挪到键 4），
+//           所以只按「演员：」这个标签认，不许按键号取（11-02 抽 16 条：按键号取 14/16，按标签取 16/16）
 //         ⚠ 这一家只收「电视剧」：电影、动漫少儿整条搬出池子（他 10-26 点的），认不准的照旧留着
 //   爱奇艺 A 路 GET pcw-api.iqiyi.com/search/recommend/list?...market_release_date_level=即将上线
 //         → 3 页整池（这一家自己会抖：本机 98、线上 94），只有片名/主演/集数/简介，一个日期字段都没有
@@ -81,11 +91,19 @@
 //   所以各按每拍 12 扇门铺，问过没给的记下 0 不再敲第二遍（刚定档的那一条会重新敲，那是平台改口集数的时候）。
 //   页面上这一列印的是「N 集」，谁没给就空着，不拿别家的数顶，也不拿 0 印成「0 集」。
 //
-// ⚠ 主演这一栏只有两家给得起：
+// ⚠ 主演这一栏四家都给得出，但来源和「脏法」各家不同（11-02 逐条量过，见下面四行）：
 //   爱奇艺 = A 路的 people.main_charactor（结构化，白拿）；
+//   芒果 = 预约数那一扇门的同一页里，"演员：…" 那一格（按标签取，键号会因「电视台」错位）；
+//   优酷 = www show 页 person[] 里 type 为 performer 的那些（跟集数同一扇门、同一个请求）；
 //   腾讯 = 列表那一格当值、逐条详情页的 star_list 当核对（跟着集数那一扇门一起拿，一个额外请求不花）。
-//   优酷、芒果这两个口压根没有主演这一项，那一栏留着空，不拿片名去猜。
-//   11-02 两笔账分开核过：① 上一版档案里 119 条有主演，**只有 3 条填的是宣传语**
+//   ⚠ 上一版这一节写的是「主演只有两家给得起、优酷芒果那两个口压根没有」—— 那是错的：
+//     真实情况是我当时读的那两格没有，芒果的在已经下载的那一页里、优酷的在已经存进档案的那个地址上。
+//   ⚠ 优酷不能用那张页里的 "_personNameArr"：它不是演员名单，是「这片子的头几号人物」，
+//     导演和原著作者会混进来（恋人 =「赵露思、彭冠英、邓科」，邓科是导演；
+//     少年歌行2之南明离火 =「尹涛、周木楠、周木楠」，一个是导演、两个是原著+编剧，那页一个演员都没填）。
+//     performer 这一档过滤掉的就是他们 ⇒ 只信带类型的 person[]，宁可空着也不印导演。
+//   ⚠ 11-02 优酷/芒果这两栏各自抽 16 条：芒果 16/16 有演员、优酷 16/16 有 performer 名单。
+//   腾讯那两笔账分开核过：① 上一版档案里 119 条有主演，**只有 3 条填的是宣传语**
 //     （赢风「情利交刃传奇开幕」、此刻的生活「别墅区人心拉扯」、多喜一家人「平凡人家大戏启幕」）
 //     —— 他截图抓到的正是前两条；② 抽 24 部逐条敲详情页当标准答案，卡片路 topic_label 对 13/15、
 //     筛选页 sub_title 对 20/23，没对上的那几条是「那一格本来空着」和「列表把导演排掉了」，一条宣传语都不是。
@@ -448,7 +466,7 @@ async function fetchYKPool() {
   } catch (e) { return { ok: false, msg: e.message }; }
   const mapped = out.map(x => ({
     id: 'yk:' + x.reserve.id, platform: 'yk', title: String(x.title),
-    genre: ykGenre(x.tags), cast: '',
+    genre: ykGenre(x.tags), cast: '', castOk: false,
     line: String(x.desc || '').replace(/\s+/g, '').slice(0, 60),
     count: num(x.reserve.count), hot: '',
     date: null, time: null, dateText: '', eps: null,
@@ -486,7 +504,7 @@ async function fetchYKStrip() {
     if (!it.title || !it.action_value) continue;
     out.push({
       id: 'yk:' + it.action_value, platform: 'yk', title: String(it.title),
-      genre: ykGenre(it.tags), cast: '',
+      genre: ykGenre(it.tags), cast: '', castOk: false,
       line: String(it.desc || '').slice(0, 60),
       count: num((it.reserve || {}).count), hot: '',
       date: null, time: null, dateText: String(it.subtitle || ''), eps: null,
@@ -499,7 +517,8 @@ async function fetchYKStrip() {
 }
 
 /* 优酷和腾讯这两家的集数不在待播那一路里，各在每部片子自己的详情页上，一家一个字段：
-   优酷 "episodeTotal"（www 那张页 38~62 万字节，m 站同一部片子 6 万字节、同一个字段 ⇒ 走 m 站）；
+   优酷 www show 页的 "episodeTotal"（11-02 起门从 m 站挪上来，因为主演名单只在那一页里 ——
+     m 站那张 6 万字的页面压根没有演员这一项，主演只出现在 showSubtitle 那句宣传语里）；
    腾讯 详情页 getPage 的 pc_introduction 卡 params.episode_all（一条 6~11 万字节）。
    ⚠ 一部一个请求 ⇒ 池子 126/144 部全取一遍就是 126/144 个请求，跟固定那 120 发一个量级。
       所以每家每拍各只补「还没有数」的前 EPS_MAX 条，按站内次序 —— 靠前的正是页面上先看见的。
@@ -515,6 +534,16 @@ async function fetchYKStrip() {
       这一版不清库、不空栏：列表那一格照旧印（上一版 119 条里 116 条本来就是主演，不能为 3 条广告词把它们抹了），
       门敲到的那一条才对它下判断 —— 对得上留、对不上换成详情页名单。⇒ 那 3 条广告词第一拍就没了（排在队首），
       其余的在一两天里逐条盖上「核过」这一章；没盖到的那几天里，那一栏是「腾讯列表自己填的、还没对过名单」。
+   ⚠ 11-02 深夜这一栏从两家变四家：优酷在同一扇门里多读 person[]（type=performer 的那几个），
+      芒果在同一扇门里多读「演员：」那一格 ⇒ 请求数一个不多花，但两家的排队判据都放宽成「主演还欠着」，
+      所以上传后的头几拍这两家的门全砸在重走上（优酷 144 条 ≈ 12 拍、芒果 47 条 ≈ 4 拍；
+      一天四拍 ⇒ 芒果当天铺完、优酷次日铺完），这期间它们的集数补数会慢下来 —— 和腾讯那一版是同一笔账。
+      这两家不存在「列表那一格」可核对：池子整条没有主演字段（cast 一律是空串），
+      所以门敲到的那一条直接写详情页给的名单，castOk 记「这一条的名单是从页上读的」，不是「对过别人的」。
+      ⚠ 优酷页里另有现成的 "_personNameArr" 一格，看着比 person[] 好抽，但它掺导演和原著作者
+      （恋人 =「赵露思、彭冠英、邓科」，邓科是导演；少年歌行2之南明离火 整格是「尹涛、周木楠、周木楠」=
+      导演+原著+编剧，那一页一个演员都没填）⇒ 只许按 type 取 performer，宁可空着也不印导演。
+      芒果那一格的键号会错位（上星剧多插一条「电视台：」，演员从键 3 挪到键 4）⇒ 只许按「演员：」这个标签取。
    ⚠ 「这一家自己没填」两家写法不同：优酷是 "episodeTotal":0，腾讯是空串。两个都归成 eps=0
       留下（页面拿不到就不印），不然每拍都在重敲同一批没人接的电话。
    ⚠ 代价摆在这里：一条现在写 0 的片子，平台后来改口公布了集数，光靠「问过一次」是看不见的。
@@ -565,13 +594,58 @@ export function carryCast(items, prevItems) {
   }
   return kept;
 }
-async function ykEps(x) {
+/* 优酷 www show 页里「谁演的」有两个现成的格子，只许信带类型的那一个：
+   "_personNameArr" 是这片子头几号人物的混排 —— 恋人 那一格第三个是导演邓科、旷野之境 那一格第四个是导演林柯、
+   少年歌行2之南明离火 整格是「尹涛、周木楠、周木楠」（导演 + 原著 + 编剧，那一页一个演员都没填）；
+   同一个页里的 person[] 每条自带 type，performer 才是演员（director/original/screenwriter 是导演/原著/编剧）。
+   ⚠ 一条对象里键的顺序不固定，所以认的是「name 和 type 在同一条里挨着出现」，中间不许跨过花括号 ——
+     跨了就会把上一位的 name 配到下一位的 type 上。名单可能重复出现（同一页里 person[] 摊了两遍），去重。 */
+export function ykPerformers(html) {
+  const out = [];
+  const re = /"name":"([^"]{1,24})"[^{}]{0,220}?"type":"performer"/g;
+  let m;
+  while ((m = re.exec(String(html || '')))) {
+    const n = m[1].trim();
+    if (n && out.indexOf(n) < 0) out.push(n);
+  }
+  return out;
+}
+/* 芒果那一页的 videoinfo 是一格一格的："0":"类型：电视剧"、"2":"导演：杨文军"、"3":"演员：檀健次 \u002F 卢昱晓 …"。
+   ⚠ 键号会变：上星剧多插一条 "电视台：" 就把演员顶到键 4（咸鱼飞升、大梦想家 都是这一种），
+     所以按「演员：」这个标签认、不按键号 —— 11-02 抽 16 条，按键号 14/16，按标签 16/16。
+   ⚠ 分隔符在页里是写成反斜杠的 \u002F（不是斜杠），两种都认；取前四个，和腾讯那一栏一样宽。
+   「演员：」这一格在那一页上出现两次（同一段 videoinfo 被内嵌了两遍），两份内容逐字一致 ⇒ 取第一处。 */
+export function mgCast(html) {
+  const m = /"演员：([^"]*)"/.exec(String(html || ''));
+  if (!m) return '';
+  return m[1].split(/\s*(?:\\u002F|\/|、|,)\s*/).map(s => s.trim()).filter(Boolean).slice(0, 4).join('、');
+}
+/* m 站那一张（6 万字节）没有主演名单，只有同一个 episodeTotal ⇒ 只当 www 没敲门成功时的退路。 */
+async function ykEpsM(x) {
   try {
     const r = await get(`https://m.youku.com/alipay_video/id_${x.id.slice(3)}.html`,
       { headers: { 'user-agent': MG_UA, referer: 'https://m.youku.com/' } });
     const m = /"episodeTotal":(\d+)/.exec(r.body || '');
     return m ? { eps: Number(m[1]) } : null;
   } catch (e) { return null; }
+}
+/* 优酷这一扇门一次给两个数（同一页、同一个请求）：集数 episodeTotal、主演 person[] 里的 performer。
+   ⚠ www 那张页被优酷自己的反爬掐掉时回的是 1,529 字节的跳转（页里写着 _____tmd_____/punish、action:captcha），
+     那是「门没开」，不是「优酷没填」：既不许多记一个 eps=0，也不许盖 castOk —— 盖了就等于把这一条永久留在空栏，
+     再也不会回来敲。所以长度这道闸门过不了就整发退回 m 站那一发（只拿集数，主演下一拍再来）。
+   ⚠ 反过来「页拿到了、那一格里就是没有演员」（藏海传2：15 条完整页里唯一这一条）要盖上 castOk、
+     名单留空 —— 它和 eps 记 0 是同一种守法，不然这一条每拍都占一扇门。 */
+async function ykDetail(x) {
+  try {
+    const r = await get(`https://www.youku.com/show/id_${x.id.slice(3)}.html`,
+      { headers: { 'user-agent': UA, referer: 'https://www.youku.com/' } });
+    const body = r.body || '';
+    if (body.length > 20000) {
+      const m = /"episodeTotal":(\d+)/.exec(body);
+      return { eps: m ? Number(m[1]) : null, names: ykPerformers(body) };
+    }
+  } catch (e) { /* 落 m 站那一发 */ }
+  return await ykEpsM(x);
 }
 /* 腾讯逐条那一扇门一次给两个数：集数在 episode_all，主演名单在 star_list。
    ⚠ star_list 是腾讯自己拼的一段 JSON 字符串（[{"name":"万鹏","id":"…","vuid":"…"},…]），
@@ -618,19 +692,20 @@ export function checkCast(x, names) {
 async function fillEps(items, prevItems, detailOf, first, pending, head) {
   const carried = carryEps(items, prevItems) + carryCast(items, prevItems);
   const todo = pickEps(items, EPS_MAX, first, pending, head);
-  let got = 0, blank = 0, kept = 0, fixed = 0, none = 0;
+  let got = 0, blank = 0, kept = 0, fixed = 0, none = 0, named = 0;
   for (let i = 0; i < todo.length; i += 4) {
     const rs = await Promise.all(todo.slice(i, i + 4).map(detailOf));
     rs.forEach((r, k) => { const x = todo[i + k];
       if (r == null) return;                          // 门没开：两个数都算没问过，下一拍再敲
       if (r.eps != null) { x.eps = r.eps; if (r.eps > 0) got++; else blank++; }
-      if (r.names) {                                  // 只有腾讯那扇门带名单；优酷那扇没有这一项
+      if (r.names) {                                  // 腾讯/优酷这两扇带名单；芒果的门另走一路（它一次给四个数）
+        if (r.names.length) named++;
         const v = checkCast(x, r.names);
         x.castOk = true;
         if (v === 'kept') kept++; else if (v === 'fixed') fixed++; else none++;
       } });
   }
-  return { carried, asked: todo.length, got, blank, kept, fixed, none,
+  return { carried, asked: todo.length, got, blank, kept, fixed, none, named,
     ahead: first && first.size ? todo.filter(x => first.has(x.id)).length : 0 };
 }
 
@@ -644,9 +719,15 @@ async function fetchYK(prevItems) {
     strip.note = `片单那一路没回话（${pool.msg}），这一轮退回首页那一屏那 ${strip.items.length} 条`;
     r = strip;
   }
-  const s = await fillEps(r.items, prevItems, ykEps);
+  /* 排队判据和腾讯那一版同一个写法：「集数或主演还欠着」。
+     优酷池子整条没有主演字段（那两路给的都是 cast=''），所以 castOk 认的是「这一条的名单是从页上读的」，
+     没盖到章的那些沿用上一轮 carryCast 接回来的 —— 门每拍只有 12 扇，池子 144 条。 */
+  const s = await fillEps(r.items, prevItems, ykDetail, null, x => x.eps == null || !x.castOk);
+  const wait = r.items.filter(x => !x.castOk).length;
   r.note = `${r.note ? r.note + '；' : ''}集数：这一拍敲了 ${s.asked} 扇门、优酷填了 ${s.got} 部`
-    + `（它自己写着 0 的 ${s.blank} 部不再敲第二遍）、沿用上一轮 ${s.carried} 条`;
+    + `（它自己写着 0 的 ${s.blank} 部不再敲第二遍）、主演读到名单 ${s.named} 条`
+    + `（那一页真没填演员的 ${s.none} 条记「问过了」不再敲）、沿用上一轮 ${s.carried} 条`
+    + `；全池还差 ${wait} 条没敲到门`;
   return r;
 }
 
@@ -697,7 +778,7 @@ export function mgFeedItem(x) {
   if (ts > 0) { const p = bjParts(new Date(ts * 1000)); date = `${p.year}-${p2(p.month)}-${p2(p.day)}`; time = `${p2(p.hour)}:${p2(p.minute)}`; }
   return {
     id: 'mg:' + x.aid, platform: 'mg', title: String(i.title),
-    genre: (i.tag || []).join(' · '), cast: '',
+    genre: (i.tag || []).join(' · '), cast: '', castOk: false,
     line: String(i.info || '').replace(/\s+/g, '').slice(0, 60),
     count: null, hot: '', date, time, dateText: String(i.onlineText || ''), eps: null,
     pic: httpsPic(i.imgHor || i.img || ''),
@@ -765,13 +846,17 @@ async function fetchMG(prevItems, prevOff) {
         + ` → 芒果标成电视剧以外的 ${Object.keys(off).length} 条不搬进来，池子 ${items.length} 条`
         + (waiting ? `（其中 ${waiting} 条还没敲到门认类型，下一拍接着认）` : '')
         + (kinds.length ? `；剔掉的按芒果自己的分类：${Object.entries(byKind).map(([k, n]) => `${k} ${n}`).join('、')}` : '')
-        + `；这一拍敲了 ${f.asked} 扇门、预约数拿到 ${f.got} 条（集数顺带 ${f.eps} 条、类型认出 ${f.typed} 条 + 芒果页上没写类型的 ${f.unmarked} 条，都记「问过了」不再敲）、沿用上一轮 ${f.carried} 条` };
+        + `；这一拍敲了 ${f.asked} 扇门、预约数拿到 ${f.got} 条（集数顺带 ${f.eps} 条、类型认出 ${f.typed} 条 + 芒果页上没写类型的 ${f.unmarked} 条、主演读到 ${f.named} 条，没给的都记「问过了」不再敲）、沿用上一轮 ${f.carried} 条` };
 }
-/* 这一家的预约数和集数在同一个那一页上，所以只有一扇门：敲一次两跳，三个数一起拿（预约数、集数、类型）。
-   十个一开就是 20 个并发请求砸人家 CDN，按 4 个一批走。 */
+/* 这一家的预约数和集数在同一个那一页上，所以只有一扇门：敲一次两跳，四个数一起拿
+   （预约数、集数、类型、主演）。十个一开就是 20 个并发请求砸人家 CDN，按 4 个一批走。 */
 /* 类型也算一扇门的账：已经在档案里填满预约数和集数的那 21 条，若只按「缺数」排队，
-   它们再也进不了队列，于是永远认不出类型、电影永远留在单子里（10-26 沙箱实跑抓到的）。 */
-export function mgQueue(items, max) { return items.filter(x => x.count == null || x.eps == null || x.kind == null).slice(0, max); }
+   它们再也进不了队列，于是永远认不出类型、电影永远留在单子里（10-26 沙箱实跑抓到的）。
+   主演是同一笔账的第二次：11-02 只按「缺数或没类型」排队的话，档案里那 47 条已经齐了的永远进不了门，
+   页面上「主演」那一栏就永远是空的 —— 而且它不报错、不空屏，看上去跟平台没填一模一样。 */
+export function mgQueue(items, max) {
+  return items.filter(x => x.count == null || x.eps == null || x.kind == null || !x.castOk).slice(0, max);
+}
 /* 认完类型这一步单独可测 —— 它同时管着两件容易写反的事：
    一是「认不准就别剔」（kind 为 null 是没敲到门，'未标' 是敲到了但页上没这个形状，两者都不是「不是电视剧」），
    二是剔掉的必须落进 off 那份备忘，不然下一拍它又回到敲门队列里，白占一扇门。
@@ -816,9 +901,10 @@ export function carryCounts(items, prevItems) {
   return kept;
 }
 async function fillMGDetail(items, prevItems, off) {
-  const carried = carryEps(items, prevItems) + carryCounts(items, prevItems) + carryKind(items, prevItems);
+  const carried = carryEps(items, prevItems) + carryCounts(items, prevItems) + carryKind(items, prevItems)
+    + carryCast(items, prevItems);
   const todo = mgQueue(items, MG_DOOR_MAX);
-  let got = 0, eps = 0, typed = 0, unmarked = 0;
+  let got = 0, eps = 0, typed = 0, unmarked = 0, named = 0;
   for (let i = 0; i < todo.length; i += 4) {
     const rs = await Promise.all(todo.slice(i, i + 4).map(x => mgDetail(x.id.slice(3))));
     rs.forEach((r, k) => {
@@ -826,10 +912,13 @@ async function fillMGDetail(items, prevItems, off) {
       if (r.count != null) { x.count = r.count; got++; }
       if (r.eps != null) { x.eps = r.eps; if (r.eps > 0) eps++; }
       if (r.kind) { x.kind = r.kind; if (r.kind === '未标') unmarked++; else typed++; }
+      /* 主演和类型是同一页、同一次敲门；那一页没写演员就记空串 + 盖章（问过了），
+         不然这一条每拍回来占一扇门，12 扇门永远铺不完 47 条池子。 */
+      if (r.cast != null) { x.cast = r.cast; x.castOk = true; if (r.cast) named++; }
     });
   }
   const cut = mgSplit(items, off);
-  return { carried, asked: todo.length, got, eps, typed, unmarked, cut };
+  return { carried, asked: todo.length, got, eps, typed, unmarked, named, cut };
 }
 /* 芒果那个 yy/query/type 口逆到底了，结论是不必再逆：bundle 里那一发的参数是
    {uuid, ticket: HDCN.split('-')[0], aids, appVersion, device, platform, external} —— 全程没有签名，
@@ -863,7 +952,7 @@ export function mgKind(html) {
   return m ? m[1] : null;
 }
 async function mgDetail(aid) {
-  const out = { count: null, eps: null, kind: null };
+  const out = { count: null, eps: null, kind: null, cast: null };
   try {
     const hop = await get(`https://m.mgtv.com/b/${aid}`, { headers: { 'user-agent': MG_UA } });
     const m = /url=(https?:\/\/m\.mgtv\.com\/b\/\d+\/\d+\.html)/.exec(hop.body || '');
@@ -874,6 +963,10 @@ async function mgDetail(aid) {
        留成 null 它每拍都回来占一扇门，51 条只有 12 扇，后面的永远认不到。
        '未标' 的条目仍然留在单子里 —— 认不准就不剔。 */
     out.kind = mgKind(page.body) || '未标';
+    /* 主演在这同一页的 videoinfo 里（"演员：檀健次 \u002F 卢昱晓 …"），一个请求不多花。
+       认不到那一格 ⇒ 记空串（＝问过了、芒果这一页没写演员），和 eps 记 0、kind 记 '未标' 是同一种守法；
+       留 null 就等于每拍回来占一扇门。 */
+    out.cast = mgCast(page.body);
     const j = /"reserveInfo":\[(\{[^\]}]*\})/.exec(page.body || '');
     if (j) { const o = JSON.parse(j[1]); if (String(o.aid) === String(aid)) out.count = num(o.yyNum); }
     const u = /"updateInfo":"共(\d+)集/.exec(page.body || '');
@@ -895,7 +988,7 @@ function mgItem(r) {
   if (ts > 0) { const p = bjParts(new Date(ts * 1000)); date = `${p.year}-${p2(p.month)}-${p2(p.day)}`; time = `${p2(p.hour)}:${p2(p.minute)}`; }
   return {
     id: 'mg:' + r.aid, platform: 'mg', title: String(r.title),
-    genre: '', cast: '',
+    genre: '', cast: '', castOk: false,
     line: String(r.stroy || '').replace(/\s+/g, '').slice(0, 60),
     count: null, hot: '', date, time, dateText: String(r.beginTime || ''), eps: null,
     pic: httpsPic(r.imgHor || r.imgVer || r.img),
