@@ -337,7 +337,7 @@ function dateLabel(it){
   const md = it.date.slice(5);
   return [w ? w+' '+md : md, it.time].filter(Boolean).join(' ');
 }
-/* 距开播按「天」读，是因为这一屏一天只走两拍：按小时反而让人以为中间有更新。
+/* 距开播按「天」读，是因为这一屏一天只走四拍（隔四个钟头一拍）：按小时反而让人以为两拍中间还有更新。
    锚点取档案自己的采集日，不取看的人机器上的今天 —— 那台机器在 UTC 上会凭空多出一天。 */
 function countdown(ds, at){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(String(ds||''))) return '';
@@ -458,7 +458,7 @@ function renderDiff(V){
   if(!ds.length){
     chips.innerHTML = '';
     box.innerHTML = `<p class="empty">${V.baseline
-      ? '第一份档案里没有「上一轮」，所以这一天什么都比不出来。两拍之后这里就开始有东西了。'
+      ? '第一份档案里没有「上一轮」，所以这一天什么都比不出来。一天四拍，第二拍起这里就开始有东西了。'
       : '档案攒了 ' + (V.days||[]).length + ' 天，四家的待播清单一条都没动过。'}</p>`;
     return;
   }
