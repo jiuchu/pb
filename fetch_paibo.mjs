@@ -2,12 +2,15 @@
 //
 // 产出 paibo.json，一页看板读它。四个口全是匿名的：不要账号、不要浏览器、不落任何凭据。
 // 只有优酷那一发要按 mtop 的规矩现签一次（头一发换一枚临时票，签完就丢），其余连签名都没有。
-// 一轮 28 个固定请求（腾讯 4 + 腾讯即将上线筛选页 4 + 优酷 9 + 芒果首页 2 + 芒果新片日历 2 + 爱奇艺 A 路 3 + 爱奇艺 B 路 2 + 爱奇艺预约数 2），
-// 一天两拍 = 56 个固定请求/天。
-// ⚠ 爱奇艺 B 路那一发被风控挡回空壳时只重敲头一页一次（隔 2.5~4 秒）⇒ 挡着的那一拍 29 个、58 个/天；没挡着就还是 28。
+// 一轮 120 个固定请求（腾讯 4 + 腾讯即将上线筛选页 4 + 优酷 9 + 芒果首页 2 + 芒果新片日历 2
+//   + 爱奇艺 A 路 3 + 爱奇艺预约数 2 + 爱奇艺档期 92），一天两拍 = 240 个固定请求/天。
+// ⚠ 大头是爱奇艺档期那一路：它按片名搜、没有批量口，一条一个请求 ⇒ 92 跟着池子大小走，
+//   池子涨到一百二它就跟着涨。按 4 个一批发，实测整池 16 秒跑完、连打 12 发零异常。
+//   省它的办法只有一个：找到 App「新片预告」那一屏的列表口（一发给一整月的档期），
+//   11-02 还没找到，网页端只有逐条搜索这一种形状。
 // ⚠ 另有一笔浮动的：三家有逐条补的数 —— 优酷和腾讯的集数在每部片子自己的详情页（一条一个请求），
 //   芒果的预约数、集数、类型在每部片子自己的移动端页（一条两个请求：445 字节的壳 → 真页）。
-//   每家每拍最多补 12 条 ⇒ 浮动上限 12×2 + 12 + 12 = 48 个，一轮最多 28+48=76 个、一天最多 152 个。
+//   每家每拍最多补 12 条 ⇒ 浮动上限 12×2 + 12 + 12 = 48 个，一轮最多 120+48=168 个、一天最多 336 个。
 //   池子铺一遍：腾讯 126 条约 11 拍、优酷 144 条约 12 拍、芒果 51 条约 4 拍，之后每拍只碰新进池的那几条。
 //   ⚠ 芒果这一版多排队列一项（类型）：10-26 上传后的头几拍它要把这 51 条重新走一遍门，约 5 拍认完，
 //     认一条少一条（认出的类型存在档案里，下一拍接回来用），认完之后就只剩新进池的那几条排队。
@@ -15,7 +18,7 @@
 //   ⚠ 腾讯那 12 扇门不是从第 1 条开始铺：筛选页独有的那 26 条排在最前（填率 21/26，卡片那一屏只有 8/100），
 //     所以前三拍先把它们扫完、页面上靠后那一条也能早点有集数；整池仍旧 11 拍（门数没变），
 //     只是卡片那一屏从第九拍推到第十一拍。
-//   爱奇艺的集数和预约数本来就在批量路里，一个逐条请求都不花。
+//   爱奇艺的集数和预约数本来就在批量路里，一个逐条请求都不花（档期那一路除外，见上面）。
 //
 //   腾讯  POST pbaccess.video.qq.com/.../getPage|getCard   电视剧频道 page_id=100113
 //         → coming_soon 那个 tab 整池 100 条（一屏 36，要把它自己回的游标喂回去翻到第三屏 28 才算到底），
@@ -40,29 +43,27 @@
 //         同一页里还有 "updateInfo":"共24集，更新至0集"，页头 <title> 末段是芒果自己标的类型 ⇒ 一次敲门拿三个数
 //         ⚠ 这一家只收「电视剧」：电影、动漫少儿整条搬出池子（他 10-26 点的），认不准的照旧留着
 //   爱奇艺 A 路 GET pcw-api.iqiyi.com/search/recommend/list?...market_release_date_level=即将上线
-//         → 3 页整池（这一家自己会抖：本机 98、线上 94），只有片名/主演/集数/简介
-//   爱奇艺 B 路 GET mesh.if.iqiyi.com/portal/lw/videolib/data（要 device_id，见 PAIBO_IQY_DID）
-//         → 同一池子里那 40 条，唯一带 showDate 的一路
-//         ⚠ 这一发会整段不回片单：HTTP 200、301 字节、code:0，回话里根本没有 data 这个键
-//           （只有 extData.dataExtRisk.risk_level:2 和一枚 dataExtVerify.token）。
-//           同一个 device_id 换个分钟就给了（10-25 21:18 空壳、21:26 拿到 39/94），本机 IP 和机房 IP 都会撞上；
-//           device_id、referer、UA 三样都逐一换着实测过，回话逐字节一样 ⇒ 都不是它们，是时间窗。
-//           所以拿到空壳就隔几秒重敲头一页一次，还不给就按「这一拍没问到」走，池子保住上一轮那份。
+//         → 3 页整池（这一家自己会抖：本机 98、线上 94），只有片名/主演/集数/简介，一个日期字段都没有
 //   爱奇艺 C 路 GET subscription.iqiyi.com/services/subscribe/countAndState.htm
-//         → 预约人数精确整数，subKeys 一次带 60 个 albumId，一个 device_id 都不要
+//         → 预约人数精确整数，subKeys 一次带 60 个 albumId
+//   爱奇艺 D 路 GET mesh.if.iqiyi.com/portal/lw/search/homePageV3?key=<片名>
+//         → 档期：releaseTime.value 给 '2026-11-05'（排上了）或 '2026'（没排上的占位，只给年份）
+//           一条一个请求、按 qipuId 和 A 路的 albumId 硬对上（11-02 整池 92/92、当场 5 条带档期）
+//           ⚠ 上一代那一发是 B 路 videolib/data（要 device_id），10-27 起 0 次回话、11-02 摘干净了，
+//             细节写在下面 iqDates 那一段的考古注释里
 //
-// ⚠ 爱奇艺这两条路的 album_id 实测 40/40 完全对得上（B 是 A 的子集，一条新片都不带），
-//   所以 B 只拿来补字段，不并池子 —— 98 条还是那 98 条。
+// ⚠ 三条路的 albumId 是同一套：D 路回话里的 qipuId 就是 A 路的 albumId，所以它只补档期这一栏，
+//   不并池子 —— 池子永远以 A 路那一屏为准（B 路当年也是 40/40 全在 A 路里，一条新片都不带）。
 //
 // ⚠ 日期给的是腾讯、芒果、爱奇艺三家，但三家都不是「排期表」：腾讯和芒果把定档那一刻写进
-//   字段（待播的绝大多数仍是空串/0），爱奇艺只在片方真排上档期时才填 showDate，没填的统一占位成 1 月 1 日。
+//   字段（待播的绝大多数仍是空串/0），爱奇艺只在片方真排上档期时才把 releaseTime 从年份填成完整日期。
 //   优酷那两条路（片单和首页 SSR）一个日期字段都没有：144 条全标 onlineDesc=即将上线，
 //   整份回话里 "2026" 只出现在 manufacturingDate 那一格（实测过）。
-//   10-25 这一轮爱奇艺 40 条待播里只有 1 条填了真档期（《谜林》10-27）—— 这是常态不是故障。
+//   11-02 这一拍爱奇艺 92 条待播里 5 条有档期 —— 这是常态不是故障。
 //
 // ⚠ 预约数四家都给得出精确整数（腾讯 order_person_count / 优酷 reserve.count / 芒果 yyNum /
 //   爱奇艺 countAndState）。10-25 之前这份脚本按「爱奇艺只给『预约破300万』这种档位」写的，
-//   那个口径是错的：档位文字是 B 路的另一个字段，独立的一个口一直存在，只是没找着。
+//   那个口径是错的：档位文字是另一格字段，独立的一个口一直存在，只是没找着。
 //   档位文字仍然留在 hot 里当 C 路断掉时的退路，页面只在拿不到整数时印它。
 //   那四个整数各数各的站内计数，口径仍不通用，所以不跨站比大小，只在站内各排各的。
 //
@@ -82,9 +83,7 @@
 //   PAIBO_OUT      产出路径，默认 paibo.json
 //   PAIBO_KEEP     diff 最多留多少个自然日，默认 60
 //   PAIBO_PROBE    1 = 取数、打印、不写文件（用来验 Actions 的机房 IP 能不能取到数）
-//   PAIBO_IQY_DID  爱奇艺 B 路要的 device_id（每台浏览器一个的设备标识，31 位小写字母数字）。
-//                  ⚠ 只走环境变量 + 仓库 Secret：绝不写进代码正文、绝不提交、绝不打进日志。
-//                  没给就整段跳过 B 路 —— 爱奇艺那一格照常回整池、照常带预约人数，只是没有定档日。
+//   （11-02 起没有第四个：档期那一路换到匿名的搜索口，PAIBO_IQY_DID 和仓库那个 Secret 一起退役了。）
 
 import fs from 'node:fs';
 import crypto from 'node:crypto';
@@ -94,7 +93,6 @@ const md5 = s => crypto.createHash('md5').update(s).digest('hex');
 const OUT = process.env.PAIBO_OUT || 'paibo.json';
 const KEEP = Number(process.env.PAIBO_KEEP) || 60;
 const PROBE = process.env.PAIBO_PROBE === '1';
-const IQ_DID = String(process.env.PAIBO_IQY_DID || '').trim();
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 const MS = 25000;
 
@@ -466,7 +464,7 @@ async function fetchYKStrip() {
 /* 优酷和腾讯这两家的集数不在待播那一路里，各在每部片子自己的详情页上，一家一个字段：
    优酷 "episodeTotal"（www 那张页 38~62 万字节，m 站同一部片子 6 万字节、同一个字段 ⇒ 走 m 站）；
    腾讯 详情页 getPage 的 pc_introduction 卡 params.episode_all（一条 6~11 万字节）。
-   ⚠ 一部一个请求 ⇒ 池子 126/144 部全取一遍就是 126/144 个请求，比固定那 28 个还多。
+   ⚠ 一部一个请求 ⇒ 池子 126/144 部全取一遍就是 126/144 个请求，跟固定那 120 发一个量级。
       所以每家每拍各只补「还没有数」的前 EPS_MAX 条，按站内次序 —— 靠前的正是页面上先看见的。
       铺满一遍：腾讯约 11 拍、优酷约 12 拍，之后每拍只碰新进池的那几条。
    ⚠ 腾讯这一家把「筛选页独有的那几条」提到队列最前（它独有的 26 条填了 21 条，卡片那一屏 100 条只填 8 条）：
@@ -810,13 +808,11 @@ function mgItem(r) {
 }
 
 // ---------- 爱奇艺 ----------
-// A 路（推荐流口）：匿名、不需要 device_id，覆盖整池（九十多条），但整份一个日期都没有。
-// B 路（videolib/data）：唯一带 showDate 的那条，要一个真实 device_id。
-//   上一轮判「这个口被风控、不能无人值守」是错的 —— 拦人的不是 device_id，是参数集：
-//   把 market_release_date_level 当顶层 query、版本串写死成 17.0.63，15 组猜测全回 261 字节的空数组。
-//   照页面自己那一发（version=pcv=17.103.26647 + filter 里带那两个键）拼，risk_level 就是 0，
-//   而且 dfp / adExt / os / token 一整串附加参数全删掉照样回 39 条。
-// B 路只补字段、不并池子：它那 40 条待播的 album_id 实测 40/40 都在 A 路的 98 条里，一条新片都不带。
+// 三条路各管一栏，全匿名：
+//   A 路（recommend/list）：整池九十多条的片名/类型/主演/集数/海报/站内次序，一个日期字段都没有。
+//   C 路（countAndState）：预约人数精确整数，一发带 60 个 albumId。
+//   D 路（search/homePageV3）：档期。一条一个请求（它按片名搜，没有批量口），见下面那一节。
+// 三条路的 albumId 互通：D 路回话里的 qipuId 就是 A 路的 albumId（11-02 整池 92/92 逐条对上）。
 async function fetchIQ() {
   const out = [];
   let pages = 0;
@@ -847,16 +843,16 @@ async function fetchIQ() {
   const d = dedupe(out);
   if (d.length < 30) return { ok: false, msg: `爱奇艺只回了 ${d.length} 条，比平时（九十多条）少太多，这轮不用` };
   const got = await fillIQCounts(d);
-  const b = await enrichIQ(d);
-  const note = `预约人数取到 ${got}/${d.length} 条（一发带 60 个 albumId，不靠 device_id）` + '；' + b.msg;
-  return { ok: true, items: d, note, dateRoute: b.dateRoute, spoken: b.spoken };
+  const b = await iqDates(d);
+  const note = `预约人数取到 ${got}/${d.length} 条（一发带 60 个 albumId）` + '；' + b.msg;
+  return { ok: true, items: d, note, spoken: b.spoken };
 }
 
 /* C 路：预约人数。全匿名 —— 不带 cookie、不带 dfp、不带 device_id。
    subKeys 收 albumId（也收 tvId，同一个实体两个键回同一个数，两京十五日 1258223 / 它的 tv 1258222），
-   所以 A 路那 98 条直接就能问，这一路和 B 路的 device_id 有没有效无关。
+   所以 A 路那 98 条直接就能问，这一路和档期那一路通不通也无关。
    ⚠ subType 必须是 2：给 1 或 3 回的是 count:0，code 照样是 A00000，看着像成功、其实是空的。
-   拿到的数和 B 路那句「预约破300万」逐条对得上（来战 301.7万 / 云襄传之将进酒 201.4万 /
+   拿到的数和 D 路那句「预约破100万」档位文字逐条对得上（来战 301.7万 / 云襄传之将进酒 201.4万 /
    不二之臣 132.4万 / 两京十五日 125.8万），所以两个口互为对照。
    60 个一批：98 个一发实测能过（URL 1785 字节），但池子哪天涨到一百五就该撞长度线，宁可多发一发。 */
 async function fillIQCounts(items) {
@@ -881,97 +877,76 @@ async function fillIQCounts(items) {
   return got;
 }
 
-/* B 路那一发。拿不到就把 A 路原样交出去 —— 爱奇艺那一格绝不能因为 device_id 失效而整个空掉。
-   device_id 只从环境变量进来：不写进正文、不提交、不打日志。
-   ⚠ 回话里带一个 dateRoute：它是「这一轮到底问没问过档期」的证据。
-   没问过 ≠ 这些片子没档期 —— 下面 build() 拿这个决定要不要把上一轮的日期留着。
-   ⚠ 10-26 实测把这一路的「为什么没回话」改写了：它回 200、回 301 字节、`code:0`，
-     但整份回话里**没有 data 这个键**，只有 `extData.dataExtRisk.risk_level:2` 加一枚 `dataExtVerify.token`
-     —— 那是它自己那套 H5 运行时才签得出的东西，我们这边造不出来，也不该造。
-     拿他的 device_id、空的、现场编的、去掉 referer、换手机 UA 各敲两遍，五组回的是同一份字节
-     ⇒ 挡人的不是 device_id，也不是参数集（那两样上一版写在这里当嫌疑人，是猜的，今天证伪了）。
-     它是按分钟开的窗口：10-25 21:18 那拍空、21:26 那拍对上 39/94，同一个 device_id。
-     所以这里只在**头一页拿到空壳**时歇几秒再敲一次：门开着时一个请求都不多花，挡着时最多多一发。
-     ⚠ 10-27 把「挡」数了一遍：线上 13 份档案里 11 拍挡（10-26 12:47 起连着挡，重试那发也没救回来）。
-       同一时刻拿本机出口和 Cloudflare 出口各敲一发，回的是逐字节一样的空壳 ⇒ 门对两个出口同时关着，
-       「换出口绕过去」这一发还没测出分叉，别当成已经试过。 */
-async function enrichIQ(items) {
-  if (!IQ_DID) return { dateRoute: false, spoken: null, msg: 'B 路跳过（没配 device_id），这一轮爱奇艺没有定档日；预约人数走 C 路那条匿名口，不受影响' };
-  const VER = '17.103.26647';
-  const iqPage = async (p, session) => {
-    const q = new URLSearchParams({
-      uid: '', passport_id: '', ret_num: '60', pcv: VER, version: VER,
-      device_id: IQ_DID, channel_id: '2', page_id: String(p), os: '10.0', vip: '0',
-      recent_selected_tag: '即将上线',
-      filter: JSON.stringify({ mode: '11', market_release_date_level: '即将上线' }),
-      ...(session ? { session } : {}),
-    });
-    const r = await get('https://mesh.if.iqiyi.com/portal/lw/videolib/data?' + q,
-      { headers: { 'user-agent': UA, 'referer': 'https://www.iqiyi.com/list/tv/' } });
-    let j; try { j = JSON.parse(r.body); } catch (e) { return null; }
-    return Array.isArray(j.data) ? j : null;      // 空壳（没 data 键）和没回话走同一条路
-  };
-  let sid = '', got = 0, pages = 0, retried = 0;
-  const byId = new Map();
-  for (let p = 1; p <= 4; p++) {
-    let j = await iqPage(p, sid);
-    if (p === 1 && !j) {
-      retried = 1;
-      await sleep(2500 + Math.floor(Math.random() * 1500));
-      j = await iqPage(1, '');                    // 重敲头一页：不带上一轮的 session，当新的一发问
-    }
-    if (!j) continue;
-    pages++;
-    sid = j.session || sid;                       // 第二页带上上一页回的那个串；实测给不给都一样，那就给
-    for (const x of j.data) if (x && x.album_id && iqPending(x)) byId.set(String(x.album_id), x);
-    if (!j.has_next) break;
-  }
-  if (!pages) return { dateRoute: false, spoken: null,
-    msg: `B 路没回话（它回了一份不带片单的风控空壳：200、301 字节、没有 data 键${retried ? '，隔几秒重敲一次还是那份' : ''}）`
-      + '，这一轮爱奇艺只有 A 路的字段加 C 路的预约人数' };
-  let dated = 0, hot = 0;
-  const passed = [];
+/* D 路：爱奇艺的档期（11-02 起走这一路，B 路 videolib/data 死了 —— 见下面那段考古）。
+   全匿名：不带 device_id、不带 token、不带 cookie；UA / referer 给不给、换成 App 的 UA，回的是同一份。
+     GET mesh.if.iqiyi.com/portal/lw/search/homePageV3?key=<片名>&mode=1&pageNum=1&pageSize=25
+   回话 data.templates[] 每条挂一个 albumInfo，认 channel==='电视剧,2' 且 qipuId===albumId 的那一条 ——
+   是按 ID 硬对上的，不是按片名猜（11-02 整池 92 条：92/92 ID 对上，0 条靠名字）。两个字段同进同退：
+     releaseTime.value  排上档期 → '2026-11-05'；没排上 → 只给一个年份 '2026'（占位，不算档期）
+     startUpdateTime    排上档期 → '本周四18:00上线'；没排上 → '即将上线'
+   92 条里这两格无一例外地一起变，所以拿 releaseTime 当档期、拿 startUpdateTime 里的时刻填 time。
+   ⚠ 它按 key 搜、没有批量口 ⇒ 一条一个请求，整池 92 发/拍，是四家里最贵的一路。
+     按 4 个一批走（和优酷/腾讯/芒果那三扇门同一个守法），实测整池 16 秒、连打 12 发零异常。
+   ⚠ 少回一大截就不算这一路回了话：对上的不足 30 条就交 null 当「这一拍没问到」，
+     让 build() 把上一轮的日期原样留着 —— 拿一张残缺的搜索结果覆盖整池档期，
+     在 diff 里就成了「今天爱奇艺把 5 部的档期撤了」，那是假事。 */
+async function iqDates(items) {
+  const VER = '17.111.26799';
   const today = bjDay(new Date());
   const spoken = new Set();
-  for (const x of items) {
-    const y = byId.get(x.id.slice(3));
-    if (!y) continue;
+  let dated = 0, past = 0, miss = 0;
+  const names = [];
+  const one = async (x) => {
+    const id = x.id.slice(3);
+    const uu = 'https://mesh.if.iqiyi.com/portal/lw/search/homePageV3?key=' + encodeURIComponent(x.title)
+      + `&current_page=1&mode=1&source=location&pageNum=1&pageSize=25&pcv=${VER}&version=${VER}`;
+    let j;
+    try {
+      const r = await get(uu, { headers: { 'user-agent': UA, 'referer': 'https://www.iqiyi.com/' } });
+      j = JSON.parse(r.body);
+    } catch (e) { miss++; return; }
+    const list = (j || {}).data && (j.data).templates;
+    if (!Array.isArray(list)) { miss++; return; }
+    const a = list.map(t => t && t.albumInfo).filter(y => y && y.channel === '电视剧,2')
+      .find(y => String(y.qipuId) === id);
+    if (!a) { miss++; return; }          // 搜到一堆别的、没搜到这一条 ⇒ 不算问过这一条，它的旧日期留着
     spoken.add(x.id);
-    got++;
-    const raw = iqDate(y);
-    const dt = iqDate(y, today);
-    if (!dt && raw) passed.push(`${x.title} ${raw}`);   // 上游写着日期，但那一天已经过去了
-    if (dt) { x.date = dt; x.dateText = dt; dated++; }
-    const ht = iqTag(y, '1010');
-    if (ht && !x.hot) { x.hot = ht; hot++; }
-    if (!x.cast) x.cast = (y.contributor || []).map(c => c && c.name).filter(Boolean).slice(0, 4).join('、');
-    if (!x.genre) x.genre = String(y.tag || '').split(';').filter(Boolean).slice(0, 2).join(' · ');
-    if (!x.line) x.line = String(y.desc || '').replace(/\s+/g, '').slice(0, 60);
-    if (!x.pic) x.pic = httpsPic(y.image_url_1x || y.image_cover);
-  }
-  return { dateRoute: true, spoken,
-    msg: `B 路对上 ${got}/${items.length} 条，其中带真档期 ${dated}、带预约档位 ${hot}`
-      + (passed.length ? `；另有 ${passed.length} 条写的开播日已经过去了（${passed.join('、')}），没当档期收` : '') };
+    const raw = iqReleaseDate(a);
+    const dt = iqReleaseDate(a, today);
+    if (raw && !dt) past++;              // 它写着日期，但那一天已经过去了
+    if (!dt) return;
+    x.date = dt; x.dateText = dt; dated++;
+    const hm = iqTimeText(a); if (hm) x.time = hm;
+    const tag = (a.specialTags || []).map(t => t && t.text).filter(Boolean).join('、');
+    if (tag && !x.hot) x.hot = tag;      // C 路断了才用得上那句「预约破100万」
+    names.push(`${x.title} ${dt}`);
+  };
+  for (let i = 0; i < items.length; i += 4) await Promise.all(items.slice(i, i + 4).map(one));
+  if (spoken.size < 30) return { spoken: null,
+    msg: `D 路（搜索口）只对上 ${spoken.size}/${items.length} 条、${miss} 条没回或没搜到，比平时少太多，这一轮当没问到` };
+  return { spoken,
+    msg: `D 路对上 ${spoken.size}/${items.length} 条，其中带真档期 ${dated}${names.length ? '（' + names.join('、') + '）' : ''}`
+      + (past ? `；另有 ${past} 条写的开播日已经过去了，没当档期收` : '')
+      + (miss ? `；${miss} 条没搜到对应那条，它们的旧档期原样留着` : '') };
 }
-// 「即将上线」这个标在 taglines 里，不在 album_name（40 条里只有 9 条填了 album_name）。
-const iqPending = x => (x.taglines || []).some(t => String(t.subType) === '2009');
-const iqTag = (x, st) => ((x.taglines || []).find(t => String(t.subType) === st) || {}).text || '';
-/* showDate 的占位是 1 月 1 日 —— 2026-1-1、2025-1-1、2027-1-1 都见过，
-   没排上档期的片子填的就是这一格，不能当真档期用（当真就会印出「1 月 1 日开播」这种假定档）。 */
-export function iqDate(x, today) {
-  const d = (x || {}).date;
-  if (!d || !/^\d{4}$/.test(String(d.year))) return null;
-  const m = Number(d.month), day = Number(d.day);
-  if (!(m >= 1 && m <= 12 && day >= 1 && day <= 31)) return null;
-  if (m === 1 && day === 1) return null;
-  const s = `${d.year}-${p2(m)}-${p2(day)}`;
-  /* ⚠ 已经过去的日期不算档期。10-26 他抓到的那一条就是这一类：《夺金战》在爱奇艺
-     那份「即将上线」库里挂着 subType 2009 的标（文案还是「下周一上线」），日期却写着 2026-09-26 ——
-     它一个月前就开播了，是那一屏没清干净，不是待播。收进来就是「已排档期」里冒出一个过期的格子。
-     传 today 才挡；不传留给单测看解析本身。 */
-  if (today && s < today) return null;
-  return s;
+/* releaseTime 只有两种形状：'2026-11-05'（排上了）和 '2026'（没排上，整池 92 条里 87 条是这一种）。
+   只给年份的一律不算档期 —— 当真就会印出「2026 年开播」那种废话。
+   ⚠ 传 today 才挡已经过去的日期（《夺金战》那一类：标还挂在「即将上线」，日期是一个月前）。 */
+export function iqReleaseDate(a, today) {
+  const v = String(((a || {}).releaseTime || {}).value || '');
+  if (!/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(v)) return null;
+  if (today && v < today) return null;
+  return v;
 }
+// '本周四18:00上线' → '18:00'；没给就 null，不猜一个 00:00 上去。
+export const iqTimeText = a => (String((a || {}).startUpdateTime || '').match(/(\d{1,2}:\d{2})/) || [])[1] || null;
+
+/* 考古：B 路 GET mesh.if.iqiyi.com/portal/lw/videolib/data 是 10-25 接上的那一路，要一枚 device_id。
+   它回 200、回 301 字节、code:0，但整份回话里没有 data 这个键，只有 extData.dataExtRisk.risk_level:2
+   加一枚 dataExtVerify.token —— 那是它自己那套 H5 运行时才签得出的东西，我们这边造不出来，也不该造。
+   空 device_id、现场编的、他那枚真的、去掉 referer、换手机 UA、换版本串：六组回的是逐字节一样的空壳
+   ⇒ 挡人的不是凭据。10-27 起线上 0 次回话；11-02 拿 90 秒一发的节拍连敲 8 发（19:57:47→20:08:18）全空壳
+   ⇒ 早先记的「分钟级窗口」也证伪了。所以这一路整段摘掉，device_id 和那个 Secret 一起不要了。 */
 
 // ---------- 公共 ----------
 function num(v) { const n = Number(v); return Number.isFinite(n) && n >= 0 ? n : null; }
@@ -1064,7 +1039,7 @@ export function build(prevDoc, results, at) {
      取数失败那一家走的是 kept 那条路，它的旧序号原样留着，不会被这一轮的空结果打乱。
      光存 items 里这一份会被下一拍覆盖，所以事件行也各带一份，见 brief()。 */
   for (const its of live.values()) its.forEach((x, i) => { x.pos = i + 1; });
-  /* 爱奇艺的开播日期是单独那一路（B 路）给的，整池条目却是另一路给的 —— 两路会各活各的。
+  /* 爱奇艺的开播日期是单独那一路（D 路）给的，整池条目却是另一路给的 —— 两路会各活各的。
      10-26 08:30 那一拍就是撞在这个上面：94 条照常回来、预约数照常带上，只有档期那一路没说话，
      于是「已排档期」从 2 部掉到 1 部，看的人以为《谜林》撤档了，其实是取数的手抖了一下。
      规则按「这一轮有没有问到这一条」来分，不按整家分：
@@ -1198,7 +1173,8 @@ async function main() {
   if (PROBE) { console.log('PROBE：不写文件'); return; }
   /* 每一轮都写：at 这个字段本身就是页面顶部「最后一次采集」那一行的全部内容，
      它不动，看的人就没法区分「今天一条新闻都没有」和「链路断了」。
-     待播池一天两拍（早 8 晚 8）：固定 28 个请求/拍、56 个/天，加上逐条那笔浮动最多 76 个/拍。 */
+     待播池一天两拍（早 8 晚 8）：固定 120 个请求/拍、240 个/天，加上逐条那笔浮动最多 48 个/拍。
+     大头是爱奇艺档期那 92 发 —— 那个口按片名搜、没有批量口，一条一发，数目跟着池子走。 */
   fs.writeFileSync(OUT, JSON.stringify(doc) + '\n', 'utf8');
   console.log(`写了 ${OUT}（${doc.items.length} 条 · ${doc.days.length} 天 diff）`);
 }

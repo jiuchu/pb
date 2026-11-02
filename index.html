@@ -146,7 +146,7 @@ h2{font-size:16px;margin:0;letter-spacing:3px;font-weight:600}
 
 /* ── 剧集库表 ── */
 .pool{margin-top:14px}
-.ph{display:flex;align-items:baseline;gap:12px;padding:11px 16px;border-bottom:1px solid var(--line2);
+.ph{display:flex;flex-wrap:wrap;align-items:baseline;gap:12px;padding:11px 16px;border-bottom:1px solid var(--line2);
   border-left:2px solid var(--c,var(--line2))}
 .ph .nm{font-size:14px;font-weight:600;letter-spacing:2px}
 .ph .ct{font-family:var(--mono);font-size:11.5px;color:var(--cy)}
@@ -409,6 +409,10 @@ function startRoll(){
   });
 }
 
+/* 爱奇艺档期那一路没回话的拍，页上凡是数档期的地方都得说明爱奇艺不在里头：
+   「新定档 0」和那一栏的「—」在这一轮里意思是「没问到」，不是「没定档」。 */
+const iqDark = V => (V.warnings||[]).some(x => x.platform === 'iq' && x.field === 'date');
+
 function renderReadout(V){
   const items = V.items||[];
   const dated = items.filter(x => x.date).length;
@@ -419,7 +423,7 @@ function renderReadout(V){
   document.getElementById('readout').innerHTML =
     cell('库内条目', items.length, '部')
     + cell('已排档期', dated, '部', dated > 0)
-    + cell('最新一天 · 新定档', n('scheduled'), '部', n('scheduled') > 0)
+    + cell('最新一天 · 新定档', n('scheduled'), iqDark(V) ? '部 · 爱奇艺没在内' : '部', n('scheduled') > 0)
     + cell('最新一天 · 新进库', n('newIn'), '部')
     + cell('最新一天 · 撤下', n('out'), '部');
   /* 警告分两种，得分开印：整家没取到 ⇒ 那几行留的是上一批；
@@ -483,7 +487,7 @@ function renderDated(V){
   const list = (V.items||[]).filter(x => x.date).sort((a,b) => String(a.date).localeCompare(String(b.date)));
   document.getElementById('datedN').textContent = list.length ? `${list.length} 部` : '暂无';
   if(!list.length){
-    box.innerHTML = '<p class="empty pan">此刻四家里一部都没有对外公布开播日期。上一栏的「新定档」有动静时，这里就会跟着出现东西。</p>';
+    box.innerHTML = `<p class="empty pan">此刻${iqDark(V) ? '问得到档期的三家' : '四家'}里一部都没有对外公布开播日期${iqDark(V) ? '（爱奇艺这一路本轮没问到，它那一栏不作数）' : ''}。上一栏的「新定档」有动静时，这里就会跟着出现东西。</p>`;
     return;
   }
   const cnt = it => { const c = fmtCount(it.count); return c ? `<div class="v">${c.v}<i>${c.u}</i></div><div class="l">人预约</div>` : '<div class="l">这家没给预约数</div>'; };
@@ -508,10 +512,14 @@ function renderPools(V){
     const list = items.filter(x => x.platform === k);
     const at = (V.platformAt||{})[k];
     const stale = at && V.at && at !== V.at;
+    /* 那一栏的「—」有两种来路：这家给了档期栏但这部没排，和整路压根没问到 ——
+       后者是这三天爱奇艺的状态，页面上不标出来就会被读成「这些片子都没定档」。 */
+    const dark = k === 'iq' && iqDark(V);
     return `<div class="pool pan">
       <div class="ph" style="--c:var(--${k})">
         <span class="nm">${PLAT[k]}</span><span class="ct">${list.length} 部</span>
         <span class="at${stale?' warn':''}">这批数字来自 ${esc(at||'--')}</span>
+        ${dark ? '<span class="at warn">档期这一路没问到 · 那栏的「—」不是没定档</span>' : ''}
       </div>
       <div class="thead"><span>NO</span><span></span><span>片名</span><span>档期</span><span class="r">预约</span></div>
       <div data-body="${k}" data-roll></div>
