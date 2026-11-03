@@ -256,6 +256,14 @@ export function genreText(head, extra, cap = GENRE_CAP) {
   for (const s of [head].concat(extra || [])) { const t = String(s == null ? '' : s).trim(); if (t && uniq.indexOf(t) < 0) uniq.push(t); }
   return uniq.filter(s => !uniq.some(o => o !== s && o.indexOf(s) >= 0)).slice(0, cap).join(' · ');
 }
+/* 「主演」这一栏只认人名：平台自己在那一格写「未知」的，等于没标 ⇒ 整栏不写（他 11-03 点的：
+   没标就不写，不要印「未知」）。线上此刻 8 条是这一种 —— 芒果 7 条（风起玲珑骨 第一季、无常录、落花有意、
+   翡色、成凤、同行相轻、永不掉队，那一页 "演员：未知"）、爱奇艺 1 条（平原客，A 路 main_charactor 里
+   那个 name 就是「未知」）。只削这一个占位词：别的（待定/暂无）我没在线上见过，不替平台猜。
+   ⚠ 它不改 castOk：门敲开了、页上写的是占位，那就是「问过了」，下一拍不许再为它开一扇门。 */
+export function noUnknown(s) {
+  return String(s || '').split('、').map(t => t.trim()).filter(t => t && t !== '未知').join('、');
+}
 export function qqLabels(p) {
   try {
     const out = [];
@@ -729,7 +737,8 @@ export function ykPerformers(html) {
 export function mgCast(html) {
   const m = /"演员：([^"]*)"/.exec(String(html || ''));
   if (!m) return '';
-  return m[1].split(/\s*(?:\\u002F|\/|、|,)\s*/).map(s => s.trim()).filter(Boolean).slice(0, 4).join('、');
+  // 先逐个削掉占位再取前四个：那一格整格写「未知」的（11-03 线上芒果 7 条）不许占一个人名位。
+  return m[1].split(/\s*(?:\\u002F|\/|、|,)\s*/).map(s => noUnknown(s)).filter(Boolean).slice(0, 4).join('、');
 }
 /* m 站那一张（6 万字节）没有主演名单，只有同一个 episodeTotal ⇒ 只当 www 没敲门成功时的退路。 */
 async function ykEpsM(x) {
@@ -1165,7 +1174,7 @@ async function fetchIQ() {
       out.push({
         id: 'iq:' + x.albumId, platform: 'iq', title: String(x.name),
         genre: genreText('', x.categories || []),
-        cast: (((x.people || {}).main_charactor) || []).map(a => a && a.name).filter(Boolean).slice(0, 4).join('、'),
+        cast: (((x.people || {}).main_charactor) || []).map(a => noUnknown(a && a.name)).filter(Boolean).slice(0, 4).join('、'),
         line: String(x.focus || x.description || '').replace(/\s+/g, '').slice(0, 60),
         count: null, hot: '', date: null, time: null, dateText: '', eps: num(x.videoCount),
         // A 路给不出专辑页地址（a_<albumId> 那种拼法实测 404），先退到站内搜索；
@@ -1464,6 +1473,11 @@ export function build(prevDoc, results, at) {
   const kept = prevItems.filter(x => !live.has(x.platform));
   // 取到的覆盖同平台的旧条目，没取到的把旧条目留着（并记一条警告）。
   const items = [...kept, ...[...live.values()].flat()];
+  /* 主演那一栏的占位词在这一处统一洗掉（他 11-03 点的：没标就不写，不要印「未知」）。
+     写在 build 而不是四家各自的取数里，和上面那个 pos 同一本账 —— 四家各有各的返回路径，
+     漏一家就少一家，而这一处保证不漏，连「这一家今天没取到、旧条目原样留着」那几条也一起洗。
+     ⚠ 只动 cast：castOk 一个都不许改，那是「这扇门问过了」的凭据，抹了它等于每拍替平台重敲一次门。 */
+  for (const x of items) x.cast = noUnknown(x.cast);
   /* 站内排序：先按预约人数从多到少，人数一样的把已经排到日期的顶到最前，
      档期近的又比档期远的靠前。原来那一版是 date 降序，接上爱奇艺 B 路之后会让
      「唯一填了档期的那一部」沉到 98 行最底下 —— 页面页脚说的「已定档的先出现」就成假话了。
