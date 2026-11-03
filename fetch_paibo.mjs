@@ -39,7 +39,9 @@
 //           它比卡片那一路多 26 条（短剧、二轮剧），那 26 条里 21 条详情页填了集数
 //   优酷  GET acs.youku.com/h5/mtop.youku.columbus.gateway.new.execute  片单 22916606「即将上线」
 //         → 一页 20 条、八页收完，实测 144 条，带精确预约整数 reserve.count
-//         退路是首页 SSR（www.youku.com/ku/webtv）那一屏，只有 20 条；片单不回了才走它
+//         → 档期也在这一发里（11-03 接上）：定档了 onlineDesc 写「11月5日上线」，没定档写「即将上线」，
+//           整池 144 条一次读完，一个请求不多花 —— 优酷没有爱奇艺那种单独的档期口
+//         退路是首页 SSR（www.youku.com/ku/webtv）那一屏，只有 20 条；片单不回了才走它（subtitle 同一句话）
 //         集数和主演都不在这一路里，在每部片子自己的详情页 GET www.youku.com/show/id_<showid>.html：
 //         同一页里 episodeTotal 给集数、person[] 里 type 为 performer 的那些人给主演，一条一个请求。
 //         ⚠ 11-02 之前走的是 m.youku.com/alipay_video 那张 6 万字的页面（同一个 episodeTotal，省字节），
@@ -71,11 +73,13 @@
 // ⚠ 三条路的 albumId 是同一套：D 路回话里的 qipuId 就是 A 路的 albumId，所以它只补档期这一栏，
 //   不并池子 —— 池子永远以 A 路那一屏为准（B 路当年也是 40/40 全在 A 路里，一条新片都不带）。
 //
-// ⚠ 日期给的是腾讯、芒果、爱奇艺三家，但三家都不是「排期表」：腾讯和芒果把定档那一刻写进
-//   字段（待播的绝大多数仍是空串/0），爱奇艺只在片方真排上档期时才把 releaseTime 从年份填成完整日期。
-//   优酷那两条路（片单和首页 SSR）一个日期字段都没有：144 条全标 onlineDesc=即将上线，
-//   整份回话里 "2026" 只出现在 manufacturingDate 那一格（实测过）。
-//   11-02 这一拍爱奇艺 92 条待播里 5 条有档期 —— 这是常态不是故障。
+// ⚠ 日期四家都给得出，但没有一家是「排期表」：腾讯和芒果把定档那一刻写进字段（待播的绝大多数仍是
+//   空串/0），爱奇艺只在片方真排上档期时才把 releaseTime 从年份填成完整日期，优酷写的是片单里那句人话
+//   （onlineDesc：定档了写「11月5日上线」，没定档写「即将上线」）。
+//   ⚠ 这两行 11-03 之前写的是「优酷那两条路一个日期字段都没有」—— 那是 10-25 那天整池确实没一条定档时
+//     下的结论，把「当时池里没有」读成了「这一家不给」。《谷雨》的档期一挂上，片单那一格就跟着改了口，
+//     而片单本来每拍就整池拉 ⇒ 接上它一个请求不多花（11-03 实测 144 条里 1 条带上线日）。
+//   11-02 这一拍爱奇艺 92 条待播里 5 条有档期、优酷 144 条里 1 条 —— 这是常态不是故障。
 //
 // ⚠ 预约数四家都给得出精确整数（腾讯 order_person_count / 优酷 reserve.count / 芒果 yyNum /
 //   爱奇艺 countAndState）。10-25 之前这份脚本按「爱奇艺只给『预约破300万』这种档位」写的，
@@ -137,7 +141,7 @@ const MS = 25000;
 
 export const PLATFORMS = {
   qq: { name: '腾讯视频', hasDate: true, hasCount: true },
-  yk: { name: '优酷', hasDate: false, hasCount: true },
+  yk: { name: '优酷', hasDate: true, hasCount: true },
   mg: { name: '芒果TV', hasDate: true, hasCount: true },
   iq: { name: '爱奇艺', hasDate: true, hasCount: true },
 };
@@ -424,8 +428,10 @@ export function qqDate(s) {
        走 mtop.youku.columbus.gateway.new.execute，一页 20 条、八页收完，实测 144 条。
    两路口径完全一致（144 条的前 20 条和首页那 20 条一字不差、顺序也一样，预约数对得上），
    片单还多带 desc 和 tags，所以主路走片单，SSR 那条留着当退路。
-   ⚠ 这一家一个日期字段都没有：144 条全标 onlineDesc=即将上线 / reason=敬请期待，
-     整份回话里 "2026" 只出现在 manufacturingDate 那一格。
+   ⚠ 档期就在同一格里：定档了 onlineDesc 改口写「11月5日上线」（11-03 池子 144 条里《谷雨》那一条），
+     没定档时那两格各写各的 —— onlineDesc=「即将上线」/ reason.text.title=「敬请期待」，
+     定档时两格才是同一句话 ⇒ 认日期轮着读这两格、只认读得出月日的那一格。
+     一个请求不多花：这一路本来每拍就整池翻八页。
    全匿名：只要一枚现签的 _m_h5_tk，不要 cookie、不要账号。 */
 const YK_API = 'mtop.youku.columbus.gateway.new.execute';
 const YK_APPKEY = '24679788';
@@ -494,6 +500,49 @@ const ykComps = (x, acc = []) => {
   return acc;
 };
 
+/* 优酷的档期不是字段，是片单里那一句人话：「11月5日上线」。
+   ⚠ 它只写月日、不写年份 ⇒ 今年拼出来那一天已经过了，再看差多少天：
+       只差几天的不认 —— 「标还挂在即将上线、开播日刚过去」是这一池的常态（爱奇艺《夺金战》同一件事），
+       认了就等于凭空造一个 300 天后的档期；
+       差过半年才认成明年 —— 待播池不会挂一条去年今天的片子，它写 1 月 15 日而今天是 11 月，那是明年。
+     自己写了年份、那一天却还在过去 ⇒ 也不认（和 iqReleaseDate 挡过去日期同一个守法）。
+   ⚠ 「即将上线」「敬请期待」这两档认不出日期，回 null，不猜一个上去。
+   ⚠ 空格要抹掉再解析：片单里是「11月5日上线」，show 页那个预约组件写的是「11月5日 上线」。
+   ⚠ 「今日上线」「明天开播」这一类优酷没在片单里写过，遇上了就落在 null 里 —— 到时候有样本再认。 */
+export function ykDate(s, today) {
+  const t = String(s || '').replace(/\s+/g, '');
+  const m = /^(?:(\d{4})[年-])?(\d{1,2})[月-](\d{1,2})日?(?!\d)/.exec(t);
+  const none = { date: null, time: null, text: '' };
+  if (!m) return none;
+  const mo = Number(m[2]), dy = Number(m[3]);
+  if (mo < 1 || mo > 12 || dy < 1 || dy > 31) return none;
+  const day = bjDay(new Date());
+  const ref = /^\d{4}-\d{2}-\d{2}$/.test(String(today || '')) ? String(today) : day;
+  const iso = y => `${y}-${p2(mo)}-${p2(dy)}`;
+  const year = m[1] ? Number(m[1]) : Number(ref.slice(0, 4));
+  let v = iso(year);
+  // 引擎对 2月30日 不报错，直接滚成 3月2日：滚完不再是原来那一天，就是拼不出日子
+  const ms = Date.parse(v + 'T12:00:00+08:00');
+  if (Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 10) !== v) return none;
+  const d = Math.round((ms - Date.parse(ref + 'T12:00:00+08:00')) / 86400000);
+  if (d < 0) {
+    if (m[1] || d > -180) return none;
+    v = iso(year + 1);
+  }
+  const hm = /(\d{1,2}):(\d{2})/.exec(t);
+  return { date: v, time: hm ? `${p2(Number(hm[1]))}:${hm[2]}` : null, text: String(s).trim() };
+}
+
+// onlineDesc 是页面上那一句，reason.text.title 是同一格的另一路写法；定档时两句话一样，
+// 没定档时各说各的 ⇒ 谁读得出日期用谁，都读不出就空着（不拿「即将上线」当它没档期的证据）。
+function ykSpoken(x, today) {
+  for (const s of [x.onlineDesc, ((x.reason || {}).text || {}).title]) {
+    const r = ykDate(s, today);
+    if (r.date) return r;
+  }
+  return { date: null, time: null, text: '' };
+}
+
 async function fetchYKPool() {
   const out = [];
   let session = null, pages = 0;
@@ -511,15 +560,19 @@ async function fetchYKPool() {
       if (!more || !session) break;
     }
   } catch (e) { return { ok: false, msg: e.message }; }
-  const mapped = out.map(x => ({
-    id: 'yk:' + x.reserve.id, platform: 'yk', title: String(x.title),
-    genre: ykGenre(x.tags), cast: '', castOk: false,
-    line: String(x.desc || '').replace(/\s+/g, '').slice(0, 60),
-    count: num(x.reserve.count), hot: '',
-    date: null, time: null, dateText: '', eps: null,
-    pic: httpsPic(x.img || x.hImg),
-    url: 'https://www.youku.com/show/id_' + x.reserve.id + '.html',
-  }));
+  const today = bjDay(new Date());
+  const mapped = out.map(x => {
+    const dt = ykSpoken(x, today);
+    return {
+      id: 'yk:' + x.reserve.id, platform: 'yk', title: String(x.title),
+      genre: ykGenre(x.tags), cast: '', castOk: false,
+      line: String(x.desc || '').replace(/\s+/g, '').slice(0, 60),
+      count: num(x.reserve.count), hot: '',
+      date: dt.date, time: dt.time, dateText: dt.date ? dt.text : '', eps: null,
+      pic: httpsPic(x.img || x.hImg),
+      url: 'https://www.youku.com/show/id_' + x.reserve.id + '.html',
+    };
+  });
   if (mapped.length < 20) return { ok: false, msg: `片单只回了 ${mapped.length} 条，比平时（144 条）少太多，这一轮不用` };
   return { ok: true, items: dedupe(mapped),
     note: `片单那一路：${pages} 页 ${mapped.length} 条（「查看全部」点开的那一张，含首页横排那 20 条）` };
@@ -546,15 +599,17 @@ async function fetchYKStrip() {
     if (comp) break;
   }
   if (!comp) return { ok: false, msg: '找到了 INITIAL_DATA 但没有「即将上线」组件' };
+  const today = bjDay(new Date());
   const out = [];
   for (const it of comp.itemList || []) {
     if (!it.title || !it.action_value) continue;
+    const dt = ykDate(it.subtitle, today);
     out.push({
       id: 'yk:' + it.action_value, platform: 'yk', title: String(it.title),
       genre: ykGenre(it.tags), cast: '', castOk: false,
       line: String(it.desc || '').slice(0, 60),
       count: num((it.reserve || {}).count), hot: '',
-      date: null, time: null, dateText: String(it.subtitle || ''), eps: null,
+      date: dt.date, time: dt.time, dateText: String(it.subtitle || ''), eps: null,
       pic: httpsPic(it.hImg || it.img),
       url: 'https://www.youku.com/show/id_' + it.action_value + '.html',
     });
@@ -595,7 +650,8 @@ async function fetchYKStrip() {
       留下（页面拿不到就不印），不然每拍都在重敲同一批没人接的电话。
    ⚠ 代价摆在这里：一条现在写 0 的片子，平台后来改口公布了集数，光靠「问过一次」是看不见的。
       改口基本发生在定档那一刻 ⇒ 上一拍还没档期、这一拍有了，就把那个 0 放回「没问过」重新排队。
-      没定档的那些不重敲，那是 100 个请求换 8 个数的那笔账。 */
+      没定档的那些不重敲，那是 100 个请求换 8 个数的那笔账。
+      11-03 起这一条对优酷也生效了（它的档期和池子同一发拿到；之前 date 恒空 ⇒ 这一支对它一次也没触发过）。 */
 const EPS_MAX = 12;
 export function carryEps(items, prevItems) {
   /* 待播那一路整条就没有集数这个字段 ⇒ 它是「没问过」，不是「没有」。
@@ -771,10 +827,13 @@ async function fetchYK(prevItems) {
      没盖到章的那些沿用上一轮 carryCast 接回来的 —— 门每拍只有 12 扇，池子 144 条。 */
   const s = await fillEps(r.items, prevItems, ykDetail, null, x => x.eps == null || !x.castOk);
   const wait = r.items.filter(x => !x.castOk).length;
+  const dated = r.items.filter(x => x.date);
   r.note = `${r.note ? r.note + '；' : ''}集数：这一拍敲了 ${s.asked} 扇门、优酷填了 ${s.got} 部`
     + `（它自己写着 0 的 ${s.blank} 部不再敲第二遍）、主演读到名单 ${s.named} 条`
     + `（那一页真没填演员的 ${s.none} 条记「问过了」不再敲）、沿用上一轮 ${s.carried} 条`
-    + `；全池还差 ${wait} 条没敲到门`;
+    + `；全池还差 ${wait} 条没敲到门`
+    + `；档期：这一拍 ${dated.length} 条写了上线日`
+    + (dated.length ? `（${dated.map(x => x.title + ' ' + x.date).join('、')}）` : '');
   return r;
 }
 
