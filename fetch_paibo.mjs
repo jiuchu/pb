@@ -62,11 +62,14 @@
 //         ⚠ 这一家只收「电视剧」：电影、动漫少儿整条搬出池子（他 10-26 点的），认不准的照旧留着
 //   爱奇艺 A 路 GET pcw-api.iqiyi.com/search/recommend/list?...market_release_date_level=即将上线
 //         → 3 页整池（这一家自己会抖：本机 98、线上 94），只有片名/主演/集数/简介，一个日期字段都没有
+//         ⚠ 类型（categories）给不齐：11-03 整池 99 条里 56 条是空数组，空的那些靠 D 路补
 //   爱奇艺 C 路 GET subscription.iqiyi.com/services/subscribe/countAndState.htm
 //         → 预约人数精确整数，subKeys 一次带 60 个 albumId
 //   爱奇艺 D 路 GET mesh.if.iqiyi.com/portal/lw/search/homePageV3?key=<片名>
 //         → 档期：releaseTime.value 给 '2026-11-05'（排上了）或 '2026'（没排上的占位，只给年份）
 //           一条一个请求、按 qipuId 和 A 路的 albumId 硬对上（11-02 整池 92/92、当场 5 条带档期）
+//         → 同一份回话还带类型（tags，11-03 起补 A 路空着的那 56 条）和真正的专辑页地址（pageUrl），
+//           一个请求不多花
 //           ⚠ 上一代那一发是 B 路 videolib/data（要 device_id），10-27 起 0 次回话、11-02 摘干净了，
 //             细节写在下面 iqDates 那一段的考古注释里
 //
@@ -237,12 +240,19 @@ export function qqTier(p) {
      那是另外两套口径，**不并进类型串** —— 混成一串等于我造一个腾讯自己没有的「类型」，
      看的人分不清哪枚是分类、哪枚是卖点。
    136 条实测：111 条有 80 那一档，其中 61 条不止一枚（最多四枚）；剩下 25 条回落到大类。
-   去重按「包含」：大类「谍战」被复合标签「年代谍战」整个包住 ⇒ 只留长的，
-   不然页面上印的是「谍战 · 年代谍战」，同一件事说两遍。
-   ⚠ 上限 3 枚不是数据给到 3 就停：大屏那一档 .sb 是 nowrap + 省略号，第四枚会把「主演」挤出可见区。
+   两格并成一串（包含去重 + 上限 3 枚）走下面 genreText 那一把公共的尺子。
    ⚠ 这一格是 JSON **字符串**（要 parse，和 qqTier 同一个字段），且卡片那一路（coming_soon）没有它 ——
      所以两条路要在 mergeQq 里比一比谁给得多，见下面那一段。 */
-const QQ_LABEL_CAP = 3;
+const GENRE_CAP = 3;
+/* 一串类型怎么落定：先按「包含」去重（大类「谍战」被复合标签「年代谍战」整个包住 ⇒ 只留长的，
+   不然页面上印的是「谍战 · 年代谍战」，同一件事说两遍），再削到 3 枚。
+   ⚠ 上限 3 枚不是数据给到 3 就停：大屏那一档 .sb 是 nowrap + 省略号，第四枚会把「主演」挤出可见区。
+   11-03 起腾讯、爱奇艺两栏共用这一条规矩（原来只有腾讯走它）。 */
+export function genreText(head, extra, cap = GENRE_CAP) {
+  const uniq = [];
+  for (const s of [head].concat(extra || [])) { const t = String(s == null ? '' : s).trim(); if (t && uniq.indexOf(t) < 0) uniq.push(t); }
+  return uniq.filter(s => !uniq.some(o => o !== s && o.indexOf(s) >= 0)).slice(0, cap).join(' · ');
+}
 export function qqLabels(p) {
   try {
     const out = [];
@@ -253,11 +263,6 @@ export function qqLabels(p) {
     }
     return out;
   } catch (e) { return []; }                       // 那一格不是合法 JSON ⇒ 回落到大类，不算没采到
-}
-export function qqGenreText(main, labels) {
-  const uniq = [];
-  for (const s of [main].concat(labels || [])) { const t = String(s == null ? '' : s).trim(); if (t && uniq.indexOf(t) < 0) uniq.push(t); }
-  return uniq.filter(s => !uniq.some(o => o !== s && o.indexOf(s) >= 0)).slice(0, QQ_LABEL_CAP).join(' · ');
 }
 // ⚠ 这一路 sub_title 当主演取、second_title 当宣传语取（和卡片那一路正好反着：卡片路 sub_title 是宣传语）。
 //   同一份字段名在两条路上意思对调，接错的那一版「主演」那一栏会整列变成一句广告词、且没有一项会红。
@@ -270,7 +275,7 @@ export function qqListItem(p) {
   if (!p || !p.title || !p.cid) return null;
   return {
     id: 'qq:' + p.cid, platform: 'qq', title: String(p.title),
-    genre: qqGenreText(p.main_genre, qqLabels(p)),
+    genre: genreText(p.main_genre, qqLabels(p)),
     cast: qqCastSp(p.sub_title), castOk: false, line: String(p.second_title || ''), count: null, hot: qqTier(p),
     date: null, time: null, dateText: '', eps: null,
     pic: httpsPic(p.new_pic_vt || p.new_pic_hz),
@@ -1104,9 +1109,11 @@ function mgItem(r) {
 
 // ---------- 爱奇艺 ----------
 // 三条路各管一栏，全匿名：
-//   A 路（recommend/list）：整池九十多条的片名/类型/主演/集数/海报/站内次序，一个日期字段都没有。
+//   A 路（recommend/list）：整池九十多条的片名/主演/集数/海报/站内次序，一个日期字段都没有。
+//     ⚠ 它的 categories（类型）不给全：11-03 整池 99 条里 56 条是空数组，空的那些条 D 路补。
 //   C 路（countAndState）：预约人数精确整数，一发带 60 个 albumId。
-//   D 路（search/homePageV3）：档期。一条一个请求（它按片名搜，没有批量口），见下面那一节。
+//   D 路（search/homePageV3）：档期，顺带类型和真正的专辑页地址。
+//     一条一个请求（它按片名搜，没有批量口），见下面那一节。
 // 三条路的 albumId 互通：D 路回话里的 qipuId 就是 A 路的 albumId（11-02 整池 92/92 逐条对上）。
 async function fetchIQ() {
   const out = [];
@@ -1123,13 +1130,16 @@ async function fetchIQ() {
       if (!x.name || !x.albumId) continue;
       out.push({
         id: 'iq:' + x.albumId, platform: 'iq', title: String(x.name),
-        genre: (x.categories || []).join(' · '),
+        genre: genreText('', x.categories || []),
         cast: (((x.people || {}).main_charactor) || []).map(a => a && a.name).filter(Boolean).slice(0, 4).join('、'),
         line: String(x.focus || x.description || '').replace(/\s+/g, '').slice(0, 60),
         count: null, hot: '', date: null, time: null, dateText: '', eps: num(x.videoCount),
-        // 两条路都给不出专辑页地址（a_<albumId> 那种拼法实测 404），只能退到站内搜索。
+        // A 路给不出专辑页地址（a_<albumId> 那种拼法实测 404），先退到站内搜索；
+        // D 路对上以后、且它那一发真带回 a_ 那张专辑页时才换过去，见 iqAlbumUrl。
+        // ⚠ 参数是 q=：keyword= 那一版点开是「抱歉，没有找到相关视频」（11-03 他撞上的），
+        //   同一个站，搜索页只认 q=。
         pic: httpsPic(x.imageUrl),
-        url: 'https://www.iqiyi.com/search?keyword=' + encodeURIComponent(String(x.name)),
+        url: 'https://www.iqiyi.com/search?q=' + encodeURIComponent(String(x.name)),
       });
     }
     if (!((j.data || {}).has_next)) break;
@@ -1180,6 +1190,9 @@ async function fillIQCounts(items) {
      releaseTime.value  排上档期 → '2026-11-05'；没排上 → 只给一个年份 '2026'（占位，不算档期）
      startUpdateTime    排上档期 → '本周四18:00上线'；没排上 → '即将上线'
    92 条里这两格无一例外地一起变，所以拿 releaseTime 当档期、拿 startUpdateTime 里的时刻填 time。
+   同一份 albumInfo 还顺手给两栏（11-03 接上，一个请求不多花）：
+     tags      A 路 categories 空着的那些条，类型补这里（整池 99 条：A 空 56、D 对上 97 且全有值）
+     pageUrl   真正的专辑页地址，只在它是 a_xxx.html 那一种时拿来替掉站内搜索
    ⚠ 它按 key 搜、没有批量口 ⇒ 一条一个请求，整池 92 发/拍，是四家里最贵的一路。
      按 4 个一批走（和优酷/腾讯/芒果那三扇门同一个守法），实测整池 16 秒、连打 12 发零异常。
    ⚠ 少回一大截就不算这一路回了话：对上的不足 30 条就交 null 当「这一拍没问到」，
@@ -1189,7 +1202,7 @@ async function iqDates(items) {
   const VER = '17.111.26799';
   const today = bjDay(new Date());
   const spoken = new Set();
-  let dated = 0, past = 0, miss = 0;
+  let dated = 0, past = 0, miss = 0, typed = 0, linked = 0;
   const names = [];
   const one = async (x) => {
     const id = x.id.slice(3);
@@ -1206,6 +1219,10 @@ async function iqDates(items) {
       .find(y => String(y.qipuId) === id);
     if (!a) { miss++; return; }          // 搜到一堆别的、没搜到这一条 ⇒ 不算问过这一条，它的旧日期留着
     spoken.add(x.id);
+    // 这两栏在日期之前填：整池 92 条里此刻只有几条排得上档期，放在 !dt 那句 return 后面就白填了。
+    if (!x.genre) { const g = genreText('', iqGenreTags(a)); if (g) { x.genre = g; typed++; } }
+    const page = iqAlbumUrl(a);
+    if (page && x.url !== page) { x.url = page; linked++; }
     const raw = iqReleaseDate(a);
     const dt = iqReleaseDate(a, today);
     if (raw && !dt) past++;              // 它写着日期，但那一天已经过去了
@@ -1221,8 +1238,29 @@ async function iqDates(items) {
     msg: `D 路（搜索口）只对上 ${spoken.size}/${items.length} 条、${miss} 条没回或没搜到，比平时少太多，这一轮当没问到` };
   return { spoken,
     msg: `D 路对上 ${spoken.size}/${items.length} 条，其中带真档期 ${dated}${names.length ? '（' + names.join('、') + '）' : ''}`
+      + `；类型补上 ${typed} 条（A 路 categories 空的那些）、片名链接换成官网专辑页 ${linked} 条`
       + (past ? `；另有 ${past} 条写的开播日已经过去了，没当档期收` : '')
       + (miss ? `；${miss} 条没搜到对应那条，它们的旧档期原样留着` : '') };
+}
+/* ── 爱奇艺的类型为什么在这一发里（11-03 他指着「重症监护 = 医疗题材」问：官网上有，屏上怎么空着）──
+   A 路 recommend/list 的 categories 整池 99 条里 56 条是空数组（11-03 实测，重症监护就是其中一条），
+   而本来就在发的 D 路那一发，albumInfo.tags 对上的 97 条全有值 —— 那一排正是官网印在片名底下的
+   （重症监护 tags = 医疗题材 · 剧情，跟他截图那枚红框一字不差）。所以补它一个请求不多花。
+   ⚠ 两套口径不并成一串：同一部片 A 给「言情 · 青春 · 剧情」、D 给「暗恋 · 都市爱情 · 爱情」，
+     拼起来就是爱奇艺自己没有的类型。所以只在 A 空的时候用 D 补，A 有值的一个字不改
+     （42 条两边都有值的逐条对过，A、D 说法没有一条是同一串）。
+   ⚠ 不用比 tags 更长的那格 baseTags：它往里掺「当代」「内地」这种时代、区域标，
+     和页面上片名底下那一排不是一回事。
+   削到 3 枚、被包住的短串丢掉，走 genreText 那把和腾讯同一样的尺子。 */
+export const iqGenreTags = a => ((a || {}).tags || []).map(t => t && t.text).filter(Boolean);
+/* D 路那一发顺手带回真正的专辑页地址。只认 a_xxx.html 那一种：
+   11-03 整池对上的 97 条里，20 条给 a_（点开就是这部片子那一页：实测 200、约 30 万字节、
+   <title> 是「自首真相-电视剧-高清正版视频在线观看」），77 条给 v_（单集/预告播放页：
+   实测也 200，但两条都是 64,482 字节的同一份空壳，<title> 是那句泛的「爱奇艺-在线视频网站」）。
+   ⇒ v_ 那种不接，宁可留在搜索那一页（q= 实测出得来卡片），不把片名链接指向一个空壳。 */
+export function iqAlbumUrl(a) {
+  const u = String((a || {}).pageUrl || '').replace(/^http:/, 'https:');
+  return /^https:\/\/www\.iqiyi\.com\/a_[0-9a-z]+\.html$/.test(u) ? u : '';
 }
 /* releaseTime 只有两种形状：'2026-11-05'（排上了）和 '2026'（没排上，整池 92 条里 87 条是这一种）。
    只给年份的一律不算档期 —— 当真就会印出「2026 年开播」那种废话。
@@ -1369,6 +1407,19 @@ export function build(prevDoc, results, at) {
         x.date = from.date; x.time = from.time || null; x.dateText = from.dateText || from.date;
         if (!x.line && from.line) x.line = from.line;
       }
+    }
+    /* 类型和片名链接是同一发 D 路顺手带的（11-03 接上），所以那一条「问过没问过 ≠ 没有」的规矩
+       一样管它们：这一拍没对上的条，上一轮认出来的类型、已经换成的专辑页地址不许被擦回去。
+       11-03 同一张池子连着量两次：一次对上 97/99、一次只对上 80/99（它按片名搜，本身会抖）——
+       拿「这一拍没问到」去擦上一拍问到的，看的人就会见着类型那一格隔一拍空一片。
+       ⚠ 只在没对上时沿用：对上了却仍然没给类型，那才是真没有，照实空着（和日期那一支同一个判据）。 */
+    for (const x of live.get('iq')) {
+      const p = prevIQ.get(x.id);
+      if (!p || (spoken && spoken.has(x.id))) continue;
+      if (!x.genre && p.genre) x.genre = p.genre;
+      // 上一轮换到的真专辑页留着；这一拍只剩站内搜索那条兜底，说明它没搜到这一条，不是爱奇艺改了口
+      if (/\/search\?q=/.test(String(x.url || '')) && /^https:\/\/www\.iqiyi\.com\/a_[0-9a-z]+\.html$/.test(String(p.url || '')))
+        x.url = p.url;
     }
     /* 这一行报的是那一路的通不通，不是「沿用了旧档期的有几部」—— 后者是缺席，看的人查不到。
        ⚠ 池子里一部都没排上档期的那些拍，旧那句「本次没有获取排播日期」压根不印（它挂在沿用条数上），
