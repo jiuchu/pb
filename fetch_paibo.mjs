@@ -41,8 +41,8 @@
 //           它比卡片那一路多 26 条（短剧、二轮剧），那 26 条里 21 条详情页填了集数
 //   优酷  GET acs.youku.com/h5/mtop.youku.columbus.gateway.new.execute  片单 22916606「即将上线」
 //         → 一页 20 条、八页收完，实测 144 条，带精确预约整数 reserve.count
-//         → 档期也在这一发里（11-03 接上）：定档了 onlineDesc 写「11月5日上线」，没定档写「即将上线」，
-//           整池 144 条一次读完，一个请求不多花 —— 优酷没有爱奇艺那种单独的档期口
+//         → 档期也在这一发里（11-03 接上）：定档了 onlineDesc 写「11月5日上线」，开播当天改成「今天上线」，
+//           没定档写「即将上线」，整池 144 条一次读完，一个请求不多花 —— 优酷没有爱奇艺那种单独的档期口
 //         退路是首页 SSR（www.youku.com/ku/webtv）那一屏，只有 20 条；片单不回了才走它（subtitle 同一句话）
 //         集数和主演都不在这一路里，在每部片子自己的详情页 GET www.youku.com/show/id_<showid>.html：
 //         同一页里 episodeTotal 给集数、person[] 里 type 为 performer 的那些人给主演，一条一个请求。
@@ -81,7 +81,7 @@
 //
 // ⚠ 日期四家都给得出，但没有一家是「排期表」：腾讯和芒果把定档那一刻写进字段（待播的绝大多数仍是
 //   空串/0），爱奇艺只在片方真排上档期时才把 releaseTime 从年份填成完整日期，优酷写的是片单里那句人话
-//   （onlineDesc：定档了写「11月5日上线」，没定档写「即将上线」）。
+//   （onlineDesc：定档了写「11月5日上线」，开播当天写「今天上线」，没定档写「即将上线」）。
 //   ⚠ 这两行 11-03 之前写的是「优酷那两条路一个日期字段都没有」—— 那是 10-25 那天整池确实没一条定档时
 //     下的结论，把「当时池里没有」读成了「这一家不给」。《谷雨》的档期一挂上，片单那一格就跟着改了口，
 //     而片单本来每拍就整池拉 ⇒ 接上它一个请求不多花（11-03 实测 144 条里 1 条带上线日）。
@@ -446,7 +446,9 @@ export function qqDate(s) {
    片单还多带 desc 和 tags，所以主路走片单，SSR 那条留着当退路。
    ⚠ 档期就在同一格里：定档了 onlineDesc 改口写「11月5日上线」（11-03 池子 144 条里《谷雨》那一条），
      没定档时那两格各写各的 —— onlineDesc=「即将上线」/ reason.text.title=「敬请期待」，
-     定档时两格才是同一句话 ⇒ 认日期轮着读这两格、只认读得出月日的那一格。
+     定档时两格才是同一句话 ⇒ 认日期轮着读这两格。
+     ⚠ 开播当天它会从「11月5日上线」改成「今天上线」（11-05 现场：两格一起改口，整池 144 条的取值
+     就只有「即将上线/敬请期待」143 条 + 「今天上线」1 条这两种形状）⇒ 相对说法也认，见 ykDate。
      一个请求不多花：这一路本来每拍就整池翻八页。
    全匿名：只要一枚现签的 _m_h5_tk，不要 cookie、不要账号。 */
 const YK_API = 'mtop.youku.columbus.gateway.new.execute';
@@ -524,16 +526,33 @@ const ykComps = (x, acc = []) => {
      自己写了年份、那一天却还在过去 ⇒ 也不认（和 iqReleaseDate 挡过去日期同一个守法）。
    ⚠ 「即将上线」「敬请期待」这两档认不出日期，回 null，不猜一个上去。
    ⚠ 空格要抹掉再解析：片单里是「11月5日上线」，show 页那个预约组件写的是「11月5日 上线」。
-   ⚠ 「今日上线」「明天开播」这一类优酷没在片单里写过，遇上了就落在 null 里 —— 到时候有样本再认。 */
+   ⚠ 开播当天它会改口写相对说法。这一条是 11-05 现场撞上的，不是推的：《谷雨》11-03 定档时写
+     「11月5日上线」，11-05 早上同一格变成「今天上线」（`onlineDesc` 和 `reason.text.title` 两处一起变）。
+     旧注释在这里写过一句「优酷没在片单里写过这种说法」—— 那是把「当时池里没有」当成了「这一家不给」，
+     代价就是档期在开播当天被静默擦掉（他 11-05 报的「优酷排播数据消失了」是这一条，不是链路断）。
+     ⇒ 相对说法按采集日推成绝对日期；推出来的日期落在 items 里，第二天它再改口时才有「原定 X」可对。
+   ⚠ 只认「今天/今日/明天/明日/后天」起头、且句子里有「上线/开播/播出」的。光一个「今天」不认 ——
+     那多半是别的模块蹭进来的句子，认了就等于替平台造一个档期。 */
+const YK_REL = { 今天: 0, 今日: 0, 明天: 1, 明日: 1, 后天: 2 };
 export function ykDate(s, today) {
   const t = String(s || '').replace(/\s+/g, '');
-  const m = /^(?:(\d{4})[年-])?(\d{1,2})[月-](\d{1,2})日?(?!\d)/.exec(t);
   const none = { date: null, time: null, text: '' };
+  const isRef = /^\d{4}-\d{2}-\d{2}$/.test(String(today || '')) ? String(today) : bjDay(new Date());
+  const hm = /(\d{1,2}):(\d{2})/.exec(t);
+  const time = hm ? `${p2(Number(hm[1]))}:${hm[2]}` : null;
+  const rel = /^(今天|今日|明天|明日|后天)/.exec(t);
+  if (rel) {
+    if (!/上线|开播|播出/.test(t)) return none;
+    const [Y, M, D] = isRef.split('-').map(Number);
+    const dt = new Date(Date.UTC(Y, M - 1, D + YK_REL[rel[1]]));
+    return { date: `${dt.getUTCFullYear()}-${p2(dt.getUTCMonth() + 1)}-${p2(dt.getUTCDate())}`,
+      time, text: String(s).trim() };
+  }
+  const m = /^(?:(\d{4})[年-])?(\d{1,2})[月-](\d{1,2})日?(?!\d)/.exec(t);
   if (!m) return none;
   const mo = Number(m[2]), dy = Number(m[3]);
   if (mo < 1 || mo > 12 || dy < 1 || dy > 31) return none;
-  const day = bjDay(new Date());
-  const ref = /^\d{4}-\d{2}-\d{2}$/.test(String(today || '')) ? String(today) : day;
+  const ref = isRef;
   const iso = y => `${y}-${p2(mo)}-${p2(dy)}`;
   const year = m[1] ? Number(m[1]) : Number(ref.slice(0, 4));
   let v = iso(year);
@@ -545,8 +564,7 @@ export function ykDate(s, today) {
     if (m[1] || d > -180) return none;
     v = iso(year + 1);
   }
-  const hm = /(\d{1,2}):(\d{2})/.exec(t);
-  return { date: v, time: hm ? `${p2(Number(hm[1]))}:${hm[2]}` : null, text: String(s).trim() };
+  return { date: v, time, text: String(s).trim() };
 }
 
 // onlineDesc 是页面上那一句，reason.text.title 是同一格的另一路写法；定档时两句话一样，
@@ -1341,7 +1359,7 @@ function dedupe(arr) {
 export function diff(prev, items, livePlatforms, known, skipOut) {
   const now = new Map(items.map(x => [x.id, x]));
   const before = new Map((prev || []).filter(x => now.has(x.id) || livePlatforms.has(x.platform)).map(x => [x.id, x]));
-  const scheduled = [], rescheduled = [], newIn = [], out = [];
+  const scheduled = [], rescheduled = [], dateGone = [], newIn = [], out = [];
   for (const x of items) {
     const b = before.get(x.id);
     if (!b) { newIn.push(brief(x)); continue; }
@@ -1353,12 +1371,22 @@ export function diff(prev, items, livePlatforms, known, skipOut) {
     }
     else if (b.date && x.date && b.date !== x.date)
       rescheduled.push({ ...brief(x), from: b.date, to: x.date });
+    /* 「档期消失」：条目还在池里，上一拍有日期、这一拍读不出来了。11-05 撞上的就是这一支 ——
+       优酷开播当天把「11月5日上线」改成「今天上线」，我们认不出那句话，日期被静默擦掉，
+       而事件流里一条痕迹都没有，看的人只能自己发现「优酷那一栏空了」。
+       ⚠ 说法用中性的一句「不再给日期」，不写「取消定档」：这一支分不清是平台真撤了档，
+         还是它换了个我们暂时读不懂的说法（后者占比目前是 1/1，就是今天这一条）。
+         撤档这件事要能单独成立，得先有「平台自己写了撤档」的样本，现在没有。
+       ⚠ 只认「还在池里」的那些条：整条不在池里了走下面 out 那一支，那一行本来就带着旧日期。 */
+    else if (b.date && !x.date)
+      dateGone.push({ ...brief(x), from: b.date });
   }
   /* skipOut：我们自己不收的那一类（芒果那一路的电影、动漫）不算「平台把它撤了」。
      不传就是老行为，一家都不漏 —— 这一条只挡「剔得对但记成撤档」那一种假新闻。 */
   for (const b of before.values()) if (!now.has(b.id) && !(skipOut && skipOut.has(b.id))) out.push(brief(b));
   const by = a => a.sort((x, y) => (x.platform + x.title).localeCompare(y.platform + y.title, 'zh'));
-  return { scheduled: by(scheduled), rescheduled: by(rescheduled), newIn: by(newIn), out: by(out) };
+  return { scheduled: by(scheduled), rescheduled: by(rescheduled), dateGone: by(dateGone),
+    newIn: by(newIn), out: by(out) };
 }
 /* 事件行为什么带 pos：屏内序号每拍会被下一拍覆盖，「在前的快要定档」这句话要回测的是
    定档/进池**那一刻**它排第几 —— 不跟着事件存下来，攒多少天都只剩「今天这一屏」。
@@ -1373,11 +1401,14 @@ const brief = x => ({
    否则「今日新定档」会把同一部片在四拍里印四遍。 */
 export function mergeDay(cur, fresh, at, counts) {
   if (!cur) return { day: at.slice(0, 10), firstAt: at, at, counts, ...fresh };
-  const keep = (a, b) => { const m = new Map(a.map(x => [x.key || x.id, x]));
-    for (const x of b) if (!m.has(x.key || x.id)) m.set(x.key || x.id, x); return [...m.values()]; };
+  /* (a || []) 不是摆设：11-05 之前落盘的日格里没有 dateGone 这个键，而今天这一格恰好就是
+     「旧形状的 cur + 新一拍的 fresh」那种合并 —— 少这一层兜底，下一拍整轮抛在这里。 */
+  const keep = (a, b) => { const m = new Map((a || []).map(x => [x.key || x.id, x]));
+    for (const x of (b || [])) if (!m.has(x.key || x.id)) m.set(x.key || x.id, x); return [...m.values()]; };
   return { ...cur, at, counts,
     scheduled: keep(cur.scheduled, fresh.scheduled),
     rescheduled: keep(cur.rescheduled, fresh.rescheduled),
+    dateGone: keep(cur.dateGone, fresh.dateGone),
     newIn: keep(cur.newIn, fresh.newIn),
     out: keep(cur.out, fresh.out) };
 }
@@ -1434,8 +1465,9 @@ export function build(prevDoc, results, at) {
     /* 上一轮的 items 自己也可能已经被同一只手擦过一遍 —— 10-26 08:30 那一拍就是这个状态。
        那种时候唯一还留着这个日期的地方是事件行：days[] 里那条「新定档」自带 date。
        ⚠ 只在整路没回话时才翻它：回话点过名、却没给日期，那是真撤了档，翻出来就是假档期。
-       残余的代价跟着变大一点：一条真撤掉的档期，如果在撤之后遇上一次没回话的拍，会被这行顶回来 ——
-       diff 里没有「档期消失」这一类事件，所以现在还没有能把它认出来的凭据。 */
+       ⚠ 只翻 scheduled/rescheduled 两类，11-05 新加的 dateGone 那一类**不进**这个表 ——
+         它记的正是「这个日期已经不在了」，拿它当恢复源等于自己把擦掉的日期顶回去。
+       残余的代价跟着变大一点：一条真撤掉的档期，如果在撤之后遇上一次没回话的拍，会被这行顶回来。 */
     const archive = new Map();
     if (!spoken) {
       for (const dy of (Array.isArray(prevDoc && prevDoc.days) ? prevDoc.days : []))
@@ -1501,8 +1533,13 @@ export function build(prevDoc, results, at) {
        10-26 就是栽在这里：B 路断了一拍，那一拍把《谜林》10-27 从 items 里擦掉了（10-25 那格事件行还记着它），
        接上之后同一件事被当成今天的新事又记了一遍。看的人翻到 10-25、10-26 两格都是它，
        会以为这一天又定了一次档。所以这里拿全部事件行当凭据：同一个片子的同一个日期，记过就不再记。
-       ⚠ 代价：一部片子撤档之后又定回同一个日期，这一版认不出来 —— 撤档本来就没有事件类型，
-       那条要等给 diff 补「档期消失」那一支一起解决，我没顺手加。 */
+       ⚠ 代价（11-05 更新过一次，还是留着）：一部片子撤档之后又定回同一个日期，这一版认不出来。
+       11-05 给 diff 补上了「档期消失」那一支，但**故意没让它反过来销掉 known** ——
+       因为那一支分不清「平台真撤了」和「它换了个我们暂时读不懂的说法」，而后者今天就是现场那一条：
+       优酷开播当天写「今天上线」，那一拍我们的解析还没接上，items 里的日期就成了 null。
+       拿它去销 known 的后果是：下一拍认出来了，同一部片同一个日期又被记一遍「新定档」，
+       正是 10-26 那次要堵掉的「两格里都是它，看的人以为又定了一次档」。
+       真撤档要能单独成立，得先攒到一条「平台自己写了撤档/改期到别的一天」的样本，现在一条都没有。 */
     const known = new Map();
     for (const dy of days) for (const k of ['scheduled', 'rescheduled']) for (const r of (dy[k] || [])) {
       const s = (known.get(r.id) || new Set()).add(r.date || r.to);
@@ -1559,7 +1596,8 @@ async function main() {
     }
   }
   const last = doc.days[doc.days.length - 1];
-  if (last && !doc.baseline) console.log(`${last.day} 累计：新定档 ${last.scheduled.length} / 改档 ${last.rescheduled.length} / 进池 ${last.newIn.length} / 出池 ${last.out.length}`);
+  if (last && !doc.baseline) console.log(`${last.day} 累计：新定档 ${last.scheduled.length} / 改档 ${last.rescheduled.length}`
+    + ` / 档期消失 ${last.dateGone.length} / 进池 ${last.newIn.length} / 出池 ${last.out.length}`);
   else console.log('第一份档案：没有上一轮可比，diff 留空属正常');
   const dead = doc.warnings.filter(w => !w.field);
   if (dead.length) console.log('⚠ 这一轮有家没取到：' + dead.map(w => PLATFORMS[w.platform].name).join('、'));

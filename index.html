@@ -449,7 +449,8 @@ function renderStatus(V){
 let SEL = null;
 function eventDays(V){
   return (V.days||[]).slice().reverse().filter(d =>
-    (d.scheduled||[]).length || (d.rescheduled||[]).length || (d.newIn||[]).length || (d.out||[]).length);
+    (d.scheduled||[]).length || (d.rescheduled||[]).length || (d.dateGone||[]).length
+    || (d.newIn||[]).length || (d.out||[]).length);
 }
 function renderDiff(V){
   const box = document.getElementById('diffBox'), chips = document.getElementById('dayChips');
@@ -472,6 +473,9 @@ function renderDiff(V){
   const L = [];
   for(const x of d.scheduled||[]) L.push(['k1','新定档', x, `${dateLabel(x)} 开播 · ${countdown(x.date, V.at)}`]);
   for(const x of d.rescheduled||[]) L.push(['k2','改档', x, `${x.from} → ${x.to}`]);
+  /* 「档期消失」= 片子还在这家那一屏里、但它不再给日期了。不写「取消定档」：
+     真撤档和「它换了个我们读不懂的说法」这两种目前分不开，只能说这一家不给日期了。 */
+  for(const x of d.dateGone||[]) L.push(['k2','档期消失', x, `原定 ${x.from} · 现在不给日期了`]);
   for(const x of d.newIn||[]) L.push(['k3','新进库', x, '']);
   for(const x of d.out||[]) L.push(['k4','撤下', x, '']);
   box.innerHTML = L.length ? L.map(([cls,lab,x,note]) =>
