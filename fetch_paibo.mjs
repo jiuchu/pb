@@ -16,17 +16,24 @@
 //   11-02 还没找到，网页端只有逐条搜索这一种形状。
 // ⚠ 另有一笔浮动的：三家有逐条补的数 —— 优酷的集数+主演在每部片子自己的 www show 页（一条一个请求），
 //   腾讯的集数+主演在自己的详情页（一条一个请求），
-//   芒果的预约数、集数、大类、主演在自己的移动端页（一条两个请求：445 字节的壳 → 真页）。
+//   芒果的集数、大类、主演在自己的移动端页（一条两个请求：445 字节的壳 → 真页）。
+//   芒果的预约数 11-12 从这扇门里摘出去了，改走 App 详情页那一口（一条一个请求、整池每拍问一遍）：
+//   旧版那一扇门里它和集数是同一次敲门拿的，而排队只看「缺不缺」⇒ 填满过的条目永远不再进门，
+//   11-12 那拍档案里 46 条有 44 条低于真值（最大一条差 925,209）。数拿不到就留旧数、时刻不动，不折成 0。
 //   ⚠ 「大类」是电视剧/电影/动漫少儿那一档（剔电影用的），不是页面上片名底下那一串类型；
 //     那一串在日历那一路的 info.tag 里，不敲这扇门（见 mergeMgGenre）。
-//   每家每拍最多补 12 条 ⇒ 浮动上限 12 + 12 + 12×2 = 48 个，一轮最多 120+48=168 个、一天最多 1008 个（6 轮）。
+//   每家每拍最多补 12 扇门 ⇒ 门那一笔 12 + 12 + 12×2 = 48 个，再加芒果整池现问的预约数（池子此刻 52 条 = 52 个）
+//   ⇒ 浮动上限 100 个/拍，一轮最多 120+100=220 个、一天最多 1320 个（6 轮）。
+//   ⚠ 那 52 跟着池子长、不是钉死的：动它的时候脚本头、工作流注释、check.mjs 里那个 FLOAT 三处一起改
+//     （红线只保证前两处同数，第三处是它自己乘出来的那些式子）。页面上一个字都不印这笔账。
 //   ⚠ 优酷那一栏还有一个尾部：www 那张页被优酷自己的反爬掐掉时（回 1,529 字节的 punish 跳转，不是没这页）
-//     要多补一发 m 站才拿得到集数 ⇒ 那一拍最多 12×2 个，全池被掐的天花板是 60 个/拍、一天 1080 个。
+//     要多补一发 m 站才拿得到集数 ⇒ 那一拍最多 12×2 个，全池被掐的天花板是 112 个/拍、一天 1392 个。
 //     本机实测这一发是被我自己敲出来的（几分钟 40 多发），Actions 每拍 12 发没这个密度。
 //   池子铺一遍：腾讯 138 条约 12 拍、优酷 144 条约 12 拍、芒果 51 条约 5 拍，之后每拍只碰新进池的那几条。
 //   ⚠ 芒果这一版多排队列一项（大类）：10-26 上传后的头几拍它要把这 51 条重新走一遍门，约 5 拍认完，
 //     认一条少一条（认出的大类存在档案里，下一拍接回来用），认完之后就只剩新进池的那几条排队。
-//     这一拍之前页面上还会看见电影和动漫，不是我漏了 —— 门数没变，只是排在后面的还没敲到。
+//     那几拍里页面上还会看见电影和动漫，不是漏了 —— 门数没变，只是排在后面的还没敲到。
+//     11-12 这一版没动这一项，档案里认过大类的不用重铺。
 //   ⚠ 腾讯那 12 扇门不是从第 1 条开始铺：筛选页独有的那 26 条排在最前（填率 21/26，卡片那一屏只有 8/100），
 //     所以前三拍先把它们扫完、页面上靠后那一条也能早点有集数；整池仍旧 11 拍（门数没变），
 //     只是卡片那一屏从第九拍推到第十一拍。
@@ -910,6 +917,15 @@ export function balance(str) {
 const MG_PBIDS = ['8', '9'];
 const MG_DOOR_MAX = 12;
 const MG_APP_UA = 'Mozilla/5.0 (Linux; Android 12; M2006J10C) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Mobile Safari/537.36';
+/* 预约数走 App 详情页那一口（他 11-12 从芒果 TV App 里抓的）。实测两条：
+   ① 只吃 clipId 一个参数 —— 他串里那二十几个设备字段（did/mac/oaid/seqId/_support…）、UA、cookie
+      整串删掉照样回同一个数，所以不进仓库、不建 secret、不装任何真机标识；
+   ② clipId 就是我们 id 里那个 aid，reserveInfo[0].aid 原样回填 ⇒ 数和人对得上才取。
+   它一发一条、一跳就回，SSR 那扇门是两跳，所以整张单子每拍铺得起（46 条 = 46 发）。
+   ⚠ 这一口的大类（clipInfo.detail[0].font）不接：同一批片子里它对 9 条写「微短剧」、
+      SSR 页头标题那一档写「电视剧」，而 mgSplit 正是按大类把电视剧以外的搬出池子的 ——
+      换源等于当场把那 9 条静默删掉。数认这一口，大类和主演照旧认那扇门。 */
+const MG_RESERVE_URL = 'https://mobile-thor.api.mgtv.com/v1/vod/info';
 const mgHex = (n) => [...Array(n)].map(() => (Math.random() * 16 | 0).toString(16)).join('');
 export function mgFeedItem(x) {
   const i = (x || {}).info || {};
@@ -967,16 +983,25 @@ export function mergeMgGenre(screen, feed) {
 async function fetchMG(prevItems, prevOff) {
   const did = mkUuid();
   const H = { 'user-agent': UA, 'referer': 'https://www.mgtv.com/' };
-  const idx = await get(`https://dc.bz.mgtv.com/dynamic/v1/channel/index/${did}/9.0.9/10.0/10000000/space/0/4/5?osType=window&seqId=${did}&device=pc&playList=`,
-    { headers: H });
+  /* 第一发只是去拿「首页有哪些模块」这张备选表，12440 本来就写死排在队首，
+     所以它连不上不该把整家判死。11-12 本机实跑撞上一次 fetch failed —— 整报「这家没取到」，
+     而页面顶部「这批数字来自」照旧往前跳，芒果那一栏其实是上一拍的数。 */
+  let idx = null;
+  try {
+    idx = await get(`https://dc.bz.mgtv.com/dynamic/v1/channel/index/${did}/9.0.9/10.0/10000000/space/0/4/5?osType=window&seqId=${did}&device=pc&playList=`,
+      { headers: H });
+  } catch (e) { /* 空表当「没拿到」，见上 */ }
   let ids = [];
   try { ids = (JSON.parse(idx.body).moduleIDS || []).map(x => String(x.moduleEntityId)); } catch (e) { /* 下面按没拿到处理 */ }
   // 12440 写死在第一位试；哪天它换了编号，就顺着首页给的模块表挨个找 vsubscribe。
   const order = ['12440', ...ids.filter(x => x !== '12440')].slice(0, 6);
   let screen = [];
   for (const mid of order) {
-    const r = await get(`https://dc.bz.mgtv.com/dynamic/v1/module/infos/${did}/9.0.9/10.0/10000000/space/0/4/5/${mid}?osType=window&seqId=${did}&device=pc&playList=`,
-      { headers: H });
+    let r;
+    try {
+      r = await get(`https://dc.bz.mgtv.com/dynamic/v1/module/infos/${did}/9.0.9/10.0/10000000/space/0/4/5/${mid}?osType=window&seqId=${did}&device=pc&playList=`,
+        { headers: H });
+    } catch (e) { continue; }
     let j; try { j = JSON.parse(r.body); } catch (e) { continue; }
     const dsl = (((j || {}).data || {})['0'] || {}).DSLList;
     if (!Array.isArray(dsl)) continue;
@@ -1001,7 +1026,14 @@ async function fetchMG(prevItems, prevOff) {
      认出来才搬出去 —— 搬出去的记进 off 这份备忘，下一拍不再给它开门，也不算「出池」（见 build 那一段）。 */
   const off = mgPrune(prevOff, raw);
   const items = raw.filter(x => !off[x.id]);
-  const f = await fillMGDetail(items, prevItems, off);
+  /* 一整拍只用一个时刻：门和 thor 都往 countAt 上盖，盖的是「这个数哪来的那一拍」，
+     两处各调一次 bjStamp 会差出分钟（页面上那一行就自己跟自己对不上了）。 */
+  const stamp = bjStamp(new Date());
+  const f = await fillMGDetail(items, prevItems, off, stamp);
+  /* 数排在门后面问：门那一跳顺带的也是同一个数，让现问的这一口盖在它上面，
+     档案里那个 countAt 才真等于「这一拍问到的」；thor 没回话的那几条留旧数 + 旧时刻，
+     滞后多少在档案里查得到，不折成 0、也不冒充这一拍的数。 */
+  const rr = await refreshMGReserve(items, stamp);
   const kinds = Object.values(off);
   const byKind = {};
   for (const k of kinds) byKind[k] = (byKind[k] || 0) + 1;
@@ -1014,17 +1046,26 @@ async function fetchMG(prevItems, prevOff) {
         + (waiting ? `（其中 ${waiting} 条还没敲到门认大类，下一拍接着认）` : '')
         + `；类型：从日历那一路接回 ${tagged} 条（屏内那 ${screen.length} 条自己不带这一格），池子里仍没类型的 ${noGenre} 条`
         + (kinds.length ? `；剔掉的按芒果自己的分类：${Object.entries(byKind).map(([k, n]) => `${k} ${n}`).join('、')}` : '')
-        + `；这一拍敲了 ${f.asked} 扇门、预约数拿到 ${f.got} 条（集数顺带 ${f.eps} 条、大类认出 ${f.typed} 条 + 那一页标题不是那个形状的 ${f.unmarked} 条、主演读到 ${f.named} 条，没给的都记「问过了」不再敲）、沿用上一轮 ${f.carried} 条` };
+        + `；预约数：这一拍整池现问 ${rr.asked} 条、拿到 ${rr.got} 条、芒果没给这一格的 ${rr.silent} 条（旧数原样留着，不折成 0）`
+        + `；那一扇门只管集数 / 大类 / 主演：敲了 ${f.asked} 扇（集数 ${f.eps} 条、大类认出 ${f.typed} 条 + 那一页标题不是那个形状的 ${f.unmarked} 条、主演读到 ${f.named} 条，没给的都记「问过了」不再敲）、沿用上一轮 ${f.carried} 格` };
 }
-/* 这一家的预约数和集数在同一个那一页上，所以只有一扇门：敲一次两跳，四个数一起拿
-   （预约数、集数、大类、主演）。十个一开就是 20 个并发请求砸人家 CDN，按 4 个一批走。 */
+/* 这一扇门原来一次给四个数（预约数、集数、大类、主演），敲一次两跳。
+   11-12 起预约数改由 refreshMGReserve 每拍现问（一发一跳、和门里那个数同一个来源），
+   这一扇门退成只管 集数 / 大类 / 主演 三格 —— 它顺带回来的那个数照旧收，但不再当排队的理由。
+   十个一开就是 20 个并发请求砸人家 CDN，按 4 个一批走。 */
 /* 大类也算一扇门的账：已经在档案里填满预约数和集数的那 21 条，若只按「缺数」排队，
    它们再也进不了队列，于是永远认不出大类、电影永远留在单子里（10-26 沙箱实跑抓到的）。
    主演是同一笔账的第二次：11-02 只按「缺数或没大类」排队的话，档案里那 47 条已经齐了的永远进不了门，
    页面上「主演」那一栏就永远是空的 —— 而且它不报错、不空屏，看上去跟平台没填一模一样。
-   ⚠ 这一栏里没有「类型」：那一扇门从头到尾不给类型串，它在日历那一路的 tag 里，见 mergeMgGenre。 */
+   ⚠ 这一栏里没有「类型」：那一扇门从头到尾不给类型串，它在日历那一路的 tag 里，见 mergeMgGenre。
+   ⚠ 11-12 起预约数从这一栏里摘出去（不是判据变松，是它换了手）：那一行 `x.count == null` 正是
+      把整池芒果数冻住的地方 —— 一条只要填满过一次就再也进不了队列，而 carryCounts 每拍把它原样接回来，
+      于是档案里 46 条有 44 条低于真值（中位差 6,886、最大 925,209：宝珠 727,611 对 1,652,820）。
+      它是四家里唯一「预约数不每拍重读」的，因为另外三家的数本来就摊在每拍必拉的那几发里。
+      现在数由 refreshMGReserve 每拍现问；门只欠 集数 / 大类 / 主演 三格 —— 数仍顺带填，
+      但不再当排队理由，否则「芒果没开预约」的那几条（落花有意、永不掉队）会每拍白占一扇门。 */
 export function mgQueue(items, max) {
-  return items.filter(x => x.count == null || x.eps == null || x.kind == null || !x.castOk).slice(0, max);
+  return items.filter(x => x.eps == null || x.kind == null || !x.castOk).slice(0, max);
 }
 /* 认完大类这一步单独可测 —— 它同时管着两件容易写反的事：
    一是「认不准就别剔」（kind 为 null 是没敲到门，'未标' 是敲到了但页上没这个形状，两者都不是「不是电视剧」），
@@ -1058,18 +1099,24 @@ export function mgPrune(off, pool) {
   return out;
 }
 /* 日历那一路整条没有预约数 ⇒ 它是「没问过」，不是「没有」：上一轮的 count 必须原样带过来，
-   不然接上这一路的下一拍，页面上那 10 个已有的数就全空了（和优酷集数那一条是同一个道理）。 */
+   不然接上这一路的下一拍，页面上那 10 个已有的数就全空了（和优酷集数那一条是同一个道理）。
+   11-12 起 countAt 跟着一起带：这个数是哪一拍取的那一格，不许在沿用的时候变成空白 ——
+   空白看着像「这一拍刚取的」，正是这一栏最不能说谎的地方。 */
 export function carryCounts(items, prevItems) {
   const prev = new Map((prevItems || []).filter(x => x.platform === 'mg').map(x => [x.id, x]));
   let kept = 0;
   for (const x of items) {
     if (x.count != null) continue;
     const p = prev.get(x.id);
-    if (p && p.count != null) { x.count = p.count; kept++; }
+    if (p && p.count != null) {
+      x.count = p.count;
+      if (x.countAt == null) x.countAt = p.countAt;
+      kept++;
+    }
   }
   return kept;
 }
-async function fillMGDetail(items, prevItems, off) {
+async function fillMGDetail(items, prevItems, off, stamp) {
   const carried = carryEps(items, prevItems) + carryCounts(items, prevItems) + carryKind(items, prevItems)
     + carryCast(items, prevItems);
   const todo = mgQueue(items, MG_DOOR_MAX);
@@ -1078,7 +1125,8 @@ async function fillMGDetail(items, prevItems, off) {
     const rs = await Promise.all(todo.slice(i, i + 4).map(x => mgDetail(x.id.slice(3))));
     rs.forEach((r, k) => {
       const x = todo[i + k];
-      if (r.count != null) { x.count = r.count; got++; }
+      // 门顺带的那个数是这一拍从它自己那一页读的，所以也盖这一拍的时刻（thor 随后能盖就盖掉）。
+      if (r.count != null) { x.count = r.count; x.countAt = stamp; got++; }
       if (r.eps != null) { x.eps = r.eps; if (r.eps > 0) eps++; }
       if (r.kind) { x.kind = r.kind; if (r.kind === '未标') unmarked++; else typed++; }
       /* 主演和大类是同一页、同一次敲门；那一页没写演员就记空串 + 盖章（问过了），
@@ -1147,6 +1195,43 @@ async function mgDetail(aid) {
     out.eps = u ? Number(u[1]) : 0;
   } catch (e) { return out; }
   return out;
+}
+/* 预约数那一口的解析，做成纯函数是为了能被红线打：给定回话正文 + 请求的 aid，只有三种下场 ——
+   拿到整数 / 这一格芒果没给 / 这一发没问到。后两种都返回 null，一种都不折成 0：
+   档案里 0 是「有 0 个人预约」，null 才是「没有这个数」，页面那一行跟着长成「这家没给预约数」。 */
+export function mgReservePick(body, aid) {
+  let j;
+  try { j = JSON.parse(body); } catch (e) { return null; }
+  const d = (j || {}).data;
+  if (Number((j || {}).code) !== 200 || !d) return null;          // 被拒 / 被限流 / 只回一个壳 ⇒ 没问到
+  const mods = ((d.template || {}).modules) || [];
+  const ri = mods.map(m => m.reserveInfo && m.reserveInfo[0]).find(Boolean);
+  if (!ri) return null;                                           // 整段没有 reserveInfo：芒果没开这一格
+  if (String(ri.aid) !== String(aid)) return null;                 // 数对不上人 ⇒ 不拿别人家的数盖它
+  return num(ri.yyNum);
+}
+async function mgReserve(aid) {
+  try {
+    const r = await get(`${MG_RESERVE_URL}?clipId=${aid}`, { headers: { 'user-agent': MG_APP_UA } });
+    return mgReservePick(r.body, aid);
+  } catch (e) { return null; }
+}
+/* 整张单子每拍现问（他 11-12 定的这一档）：池子 46 条就是 46 发，4 个一批、批间歇 400ms，
+   本机实测 2 秒铺完、最快单发 65ms。问到才盖新数并记下时刻；没问到旧数原样留着、时刻也不动 ——
+   所以「这一拍被机房 IP 限流」在档案里是看得见的（整池 countAt 停在上一拍），
+   不会长成「芒果所有剧的预约一夜掉到 0」那种假事。 */
+async function refreshMGReserve(items, stamp) {
+  let got = 0, silent = 0;
+  for (let i = 0; i < items.length; i += 4) {
+    const batch = items.slice(i, i + 4);
+    const rs = await Promise.all(batch.map(x => mgReserve(x.id.slice(3))));
+    rs.forEach((n, k) => {
+      if (n == null) { silent++; return; }
+      batch[k].count = n; batch[k].countAt = stamp; got++;
+    });
+    if (i + 4 < items.length) await sleep(400);
+  }
+  return { asked: items.length, got, silent };
 }
 function mkUuid() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -1607,7 +1692,7 @@ async function main() {
      它不动，看的人就没法区分「今天一条新闻都没有」和「链路断了」。
      待播池定点一天四拍（08:30 / 12:30 / 16:30 / 20:30 北京，11-02 从两拍抬上来的），
      再算上工作流自己那个备份闹钟两拍（它没按事件名设门禁，迟到那一发照样采、照样提交）= 一天 6 轮：
-     固定 120 个请求/拍、720 个/天，加上逐条那笔浮动最多 48 个/拍。
+     固定 120 个请求/拍、720 个/天，加上逐条那笔浮动最多 100 个/拍（48 是三家那几扇门，52 是芒果整池现问的预约数）。
      大头是爱奇艺档期那 92 发 —— 那个口按片名搜、没有批量口，一条一发，数目跟着池子走。 */
   fs.writeFileSync(OUT, JSON.stringify(doc) + '\n', 'utf8');
   console.log(`写了 ${OUT}（${doc.items.length} 条 · ${doc.days.length} 天 diff）`);
